@@ -1,100 +1,24 @@
-#!/usr/bin/env python3
-"""
-ZBM Email Display
-Displays professional emails in Outlook for ZBMs with precise data matching
-USES OUTLOOK TO DISPLAY EMAILS (NOT SEND AUTOMATICALLY)
-"""
-
 import pandas as pd
-import os
-import glob
+import numpy as np
 from datetime import datetime
-import warnings
-import win32com.client
+import os
 from openpyxl import load_workbook
+from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+from copy import copy as copy_style
+import warnings
 
-# Suppress pandas warnings
+# Suppress FutureWarning for groupby operations
 warnings.filterwarnings('ignore', category=FutureWarning, module='pandas')
 
-def find_latest_zbm_summary_file(zbm_code, zbm_name):
-    """Find the most recent ZBM summary file for a given ZBM"""
+def create_zbm_hierarchical_reports():
+    """
+    Create separate ZBM reports showing ABM hierarchy with perfect tallies
+    Each ZBM gets a report showing all ABMs under them
+    """
     
-    # Look for files in ZBM_Reports_* directories
-    report_dirs = glob.glob('ZBM_Reports_*')
+    print("🔄 Starting ZBM Hierarchical Reports Creation...")
     
-    if not report_dirs:
-        print(f"   ⚠️  No ZBM_Reports directories found")
-        return None
-    
-    # Sort by timestamp (newest first)
-    report_dirs.sort(reverse=True)
-    
-    # Create safe name pattern
-    safe_zbm_name = str(zbm_name).replace(' ', '_').replace('/', '_').replace('\\', '_')
-    
-    # Search in each directory (starting with newest)
-    for report_dir in report_dirs:
-        # Try multiple file patterns
-        patterns = [
-            f"ZBM_Summary_{zbm_code}_{safe_zbm_name}_*.xlsx",
-            f"ZBM_Summary_{zbm_code}_*.xlsx",
-            f"*{zbm_code}*.xlsx"
-        ]
-        
-        for pattern in patterns:
-            files = glob.glob(os.path.join(report_dir, pattern))
-            if files:
-                # Sort by timestamp and return newest
-                files.sort(reverse=True)
-                print(f"   ✅ Found ZBM summary: {os.path.basename(files[0])}")
-                return os.path.abspath(files[0])
-    
-    print(f"   ⚠️  No ZBM summary file found for {zbm_code}")
-    return None
-
-def find_latest_consolidated_file(zbm_code, zbm_name):
-    """Find the most recent consolidated file for a given ZBM"""
-    
-    # Look for files in ZBM_Consolidated_Files_* directories
-    consolidated_dirs = glob.glob('ZBM_Consolidated_Files_*')
-    
-    if not consolidated_dirs:
-        print(f"   ⚠️  No ZBM_Consolidated_Files directories found")
-        return None
-    
-    # Sort by timestamp (newest first)
-    consolidated_dirs.sort(reverse=True)
-    
-    # Create safe name pattern
-    safe_zbm_name = str(zbm_name).replace(' ', '_').replace('/', '_').replace('\\', '_')
-    
-    # Search in each directory (starting with newest)
-    for consolidated_dir in consolidated_dirs:
-        # Try multiple file patterns
-        patterns = [
-            f"ZBM_Consolidated_{zbm_code}_{safe_zbm_name}_*.xlsx",
-            f"ZBM_Consolidated_{zbm_code}_*.xlsx",
-            f"*{zbm_code}*.xlsx"
-        ]
-        
-        for pattern in patterns:
-            files = glob.glob(os.path.join(consolidated_dir, pattern))
-            if files:
-                # Sort by timestamp and return newest
-                files.sort(reverse=True)
-                print(f"   ✅ Found consolidated file: {os.path.basename(files[0])}")
-                return os.path.abspath(files[0])
-    
-    print(f"   ⚠️  No consolidated file found for {zbm_code}")
-    return None
-
-def send_zbm_emails():
-    """Display emails in Outlook for review without sending"""
-    
-    print("🚀 Starting ZBM Email Display...")
-    print("📧 This will DISPLAY emails in Outlook for review - NOT SEND automatically")
-    
-    # Read Sample Master Tracker data
+    # Read master tracker data from Excel file
     print("📖 Reading Sample Master Tracker.xlsx...")
     try:
         df = pd.read_excel('Sample Master Tracker.xlsx')
@@ -103,136 +27,84 @@ def send_zbm_emails():
         print(f"❌ Error reading Sample Master Tracker.xlsx: {e}")
         return
     
-    # Required columns
-    required_columns = [
-        'ZBM Terr Code', 'ZBM Name', 'ZBM EMAIL_ID', 'ABM Terr Code', 'ABM Name', 'ABM EMAIL_ID',
-        'Assigned Request Ids', 'Doctor: Customer Code', 'Request Status', 'TBM EMAIL_ID', 'TBM HQ'
-    ]
+    # Clean and prepare data
+    print("🧹 Cleaning and preparing data...")
     
-    # Check for missing columns
+    # Ensure required columns exist
+    required_columns = ['ZBM Terr Code', 'ZBM Name', 'ZBM EMAIL_ID',
+                        'ABM Terr Code', 'ABM Name', 'ABM EMAIL_ID',
+                        'TBM HQ', 'TBM EMAIL_ID',
+                        'Doctor: Customer Code', 'Assigned Request Ids', 'Request Status', 'Rto Reason']
     missing = [c for c in required_columns if c not in df.columns]
     if missing:
-        print(f"❌ Missing required columns: {missing}")
+        print(f"❌ Missing required columns in Sample Master Tracker.xlsx: {missing}")
         return
-    
-    # Clean and filter data
-    df = df.dropna(subset=['ZBM Terr Code', 'ZBM Name', 'ABM Terr Code', 'ABM Name'])
+
+    # Remove rows where key fields are null or empty
+    df = df.dropna(subset=['ZBM Terr Code', 'ZBM Name', 'ABM Terr Code', 'ABM Name', 'TBM HQ'])
     df = df[df['ZBM Terr Code'].astype(str).str.strip() != '']
     df = df[df['ABM Terr Code'].astype(str).str.strip() != '']
+    df = df[df['TBM HQ'].astype(str).str.strip() != '']
+
+    # Filter for ZBM codes that start with "ZN" (only restriction needed)
     df = df[df['ZBM Terr Code'].astype(str).str.startswith('ZN')]
-    
-    print(f"📊 After cleaning: {len(df)} records remaining")
-    
-    # Compute Final Status using logic.xlsx
-    print("🧠 Computing final status...")
+    print(f"📊 After cleaning and ZBM filtering: {len(df)} records remaining")
+    print(f"📊 Processing all ZBM codes starting with 'ZN' - no geographic restrictions")
+
+    # Compute Final Answer per unique request id using rules from logic.xlsx
+    print("🧠 Computing final status per unique Request Id using rules...")
     try:
         xls_rules = pd.ExcelFile('logic.xlsx')
+        sheet2 = pd.read_excel(xls_rules, 'Sheet2')
+
+        def normalize(text):
+            return str(text).strip().casefold()
+
+        rules = {}
+        for _, row in sheet2.iterrows():
+            statuses = [normalize(s) for s in row.drop('Final Answer').dropna().tolist()]
+            statuses = tuple(sorted(set(statuses)))
+            rules[statuses] = row['Final Answer']
+
+        # Group statuses by request id from master data
+        grouped = df.groupby('Assigned Request Ids')['Request Status'].apply(list).reset_index()
+
+        def get_final_answer(status_list):
+            key = tuple(sorted(set(normalize(s) for s in status_list)))
+            return rules.get(key, '❌ No matching rule')
+
+        grouped['Request Status'] = grouped['Request Status'].apply(lambda lst: sorted(set(lst), key=str))
+        grouped['Final Answer'] = grouped['Request Status'].apply(get_final_answer)
+
+        def has_action_pending(status_list):
+            target = 'action pending / in process'
+            return any(normalize(s) == target for s in status_list)
+        grouped['Has D Pending'] = grouped['Request Status'].apply(has_action_pending)
+
+        # Merge Final Answer back to main dataframe
+        df = df.merge(grouped[['Assigned Request Ids', 'Final Answer', 'Has D Pending']], on='Assigned Request Ids', how='left')
         
-        # Check available sheet names
-        sheet_names = xls_rules.sheet_names
-        print(f"   📋 Available sheets in logic.xlsx: {sheet_names}")
-        
-        # Try to find the rules sheet (case-insensitive)
-        rules_sheet = None
-        for sheet in sheet_names:
-            if 'rule' in sheet.lower():
-                rules_sheet = sheet
-                break
-        
-        if rules_sheet:
-            print(f"   📖 Using sheet: {rules_sheet}")
-            rules_df = pd.read_excel(xls_rules, rules_sheet)
-        else:
-            # Use the first sheet if no rules sheet found
-            rules_sheet = sheet_names[0]
-            print(f"   📖 Using first sheet: {rules_sheet}")
-            rules_df = pd.read_excel(xls_rules, rules_sheet)
-        
-        # Check if required columns exist
-        required_rule_columns = ['Request Status', 'Final Answer']
-        missing_rule_columns = [col for col in required_rule_columns if col not in rules_df.columns]
-        
-        if missing_rule_columns:
-            print(f"   ⚠️ Missing columns in rules sheet: {missing_rule_columns}")
-            print(f"   📋 Available columns: {list(rules_df.columns)}")
-            # Use alternative column names if available
-            status_col = None
-            answer_col = None
-            
-            for col in rules_df.columns:
-                if 'request' in col.lower() and 'status' in col.lower():
-                    status_col = col
-                if 'final' in col.lower() and 'answer' in col.lower():
-                    answer_col = col
-            
-            if status_col and answer_col:
-                print(f"   🔄 Using alternative columns: {status_col} -> {answer_col}")
-                status_mapping = {}
-                for _, row in rules_df.iterrows():
-                    if pd.notna(row[status_col]) and pd.notna(row[answer_col]):
-                        status_mapping[row[status_col]] = row[answer_col]
-            else:
-                raise Exception("Cannot find suitable columns for status mapping")
-        else:
-            status_mapping = {}
-            for _, row in rules_df.iterrows():
-                if pd.notna(row['Request Status']) and pd.notna(row['Final Answer']):
-                    status_mapping[row['Request Status']] = row['Final Answer']
-        
-        df['Final Status'] = df['Request Status'].map(status_mapping)
-        df['Final Status'] = df['Final Status'].fillna(df['Request Status'])
         print("✅ Final status computed successfully")
-        
+        print(f"🔍 Final Answer distribution:")
+        final_answer_counts = df.groupby('Assigned Request Ids')['Final Answer'].first().value_counts()
+        for answer, count in final_answer_counts.items():
+            print(f"   {answer}: {count}")
+            
     except Exception as e:
-        print(f"❌ Error computing final status: {e}")
-        print("   🔄 Using Request Status as Final Status")
-        df['Final Status'] = df['Request Status']
+        print(f"❌ Error computing final status from logic.xlsx: {e}")
+        return
     
     # Get unique ZBMs
     zbms = df[['ZBM Terr Code', 'ZBM Name', 'ZBM EMAIL_ID']].drop_duplicates().sort_values('ZBM Terr Code')
     print(f"📋 Found {len(zbms)} unique ZBMs")
     
-    # Initialize Outlook with robust error handling
-    print("📧 Initializing Outlook...")
-    outlook = None
-    
-    # Try different Outlook initialization methods
-    outlook_methods = [
-        "Outlook.Application",
-        "Outlook.Application.16",  # Office 2016/2019/365
-        "Outlook.Application.15",  # Office 2013
-        "Outlook.Application.14",  # Office 2010
-        "Outlook.Application.12",  # Office 2007
-    ]
-    
-    for method in outlook_methods:
-        try:
-            print(f"   🔄 Trying: {method}")
-            outlook = win32com.client.Dispatch(method)
-            print(f"✅ Outlook initialized successfully using: {method}")
-            break
-        except Exception as e:
-            print(f"   ❌ Failed with {method}: {e}")
-            continue
-    
-    if outlook is None:
-        print("❌ Could not initialize Outlook with any method")
-        print("🔧 Troubleshooting steps:")
-        print("   1. Ensure Outlook is installed on this computer")
-        print("   2. Try opening Outlook manually first")
-        print("   3. Check if Outlook is running in the background")
-        print("   4. Try running as administrator")
-        print("   5. Install Microsoft Office/Outlook if not present")
-        
-        # Fallback: Create HTML email files
-        print("\n🔄 Creating HTML email files as fallback...")
-        create_html_email_files(df, zbms)
-        return
+    # Create output directory
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_dir = f"ZBM_Reports_{timestamp}"
+    os.makedirs(output_dir, exist_ok=True)
+    print(f"📁 Created output directory: {output_dir}")
     
     # Process each ZBM
-    success_count = 0
-    error_count = 0
-    
     for _, zbm_row in zbms.iterrows():
         zbm_code = zbm_row['ZBM Terr Code']
         zbm_name = zbm_row['ZBM Name']
@@ -240,245 +112,335 @@ def send_zbm_emails():
         
         print(f"\n🔄 Processing ZBM: {zbm_code} - {zbm_name}")
         
-        try:
-            # Filter data for this specific ZBM ONLY
-            zbm_data = df[df['ZBM Terr Code'] == zbm_code]
+        # Filter data for this ZBM
+        zbm_data = df[df['ZBM Terr Code'] == zbm_code].copy()
+        
+        if len(zbm_data) == 0:
+            print(f"⚠️ No data found for ZBM: {zbm_code}")
+            continue
+        
+        # Get unique ABMs under this ZBM
+        abms = zbm_data.groupby(['ABM Terr Code', 'ABM Name']).agg({
+            'ABM EMAIL_ID': 'first',
+            'TBM HQ': 'first',
+            'ABM HQ': 'first' if 'ABM HQ' in zbm_data.columns else lambda x: None
+        }).reset_index()
+        
+        abms = abms.sort_values('ABM Terr Code')
+        print(f"   📊 Found {len(abms)} ABMs under this ZBM")
+        
+        # Create summary data for this ZBM
+        summary_data = []
+        
+        for _, abm_row in abms.iterrows():
+            abm_code = abm_row['ABM Terr Code']
+            abm_name = abm_row['ABM Name']
+            abm_email = abm_row['ABM EMAIL_ID']
+            tbm_hq = abm_row['TBM HQ']
             
-            if len(zbm_data) == 0:
-                print(f"⚠️ No data found for ZBM: {zbm_code}")
-                continue
+            # Filter data for this specific ABM
+            abm_data = zbm_data[(zbm_data['ABM Terr Code'] == abm_code) & (zbm_data['ABM Name'] == abm_name)].copy()
             
-            # Get unique ABMs under this ZBM
-            abms = zbm_data.groupby(['ABM Terr Code', 'ABM Name', 'ABM EMAIL_ID']).agg({
-                'TBM HQ': 'first'
+            print(f"      Processing {abm_name} ({abm_code}): {len(abm_data)} records")
+            
+            # CRITICAL: Work with UNIQUE REQUEST IDs only for accurate counts
+            # Get unique requests for this ABM
+            unique_requests_df = abm_data.groupby('Assigned Request Ids').agg({
+                'Final Answer': 'first',
+                'Has D Pending': 'first',
+                'TBM EMAIL_ID': 'first',
+                'Doctor: Customer Code': 'first'
             }).reset_index()
             
-            # Create summary data
-            summary_data = create_summary_data(zbm_data, abms)
-            summary_df = pd.DataFrame(summary_data)
+            print(f"         Unique Request IDs: {len(unique_requests_df)}")
             
-            # Generate email content
-            email_content, cc_emails = generate_email_content(zbm_name, zbm_email, abms, summary_df)
+            # Basic counts
+            unique_tbms = abm_data['TBM EMAIL_ID'].nunique() if 'TBM EMAIL_ID' in abm_data.columns else 0
+            unique_hcps = abm_data['Doctor: Customer Code'].nunique()
+            unique_requests = len(unique_requests_df)  # This is the total unique requests
             
-            # Display email in Outlook (without sending)
-            display_single_email(outlook, zbm_email, cc_emails, email_content, zbm_code, zbm_name)
+            print(f"         Unique TBMs: {unique_tbms}, Unique HCPs: {unique_hcps}, Unique Requests: {unique_requests}")
             
-            success_count += 1
-            print(f"   ✅ Email displayed in Outlook for {zbm_name}")
+            # Calculate metrics based on UNIQUE REQUEST IDs and Final Answer
+            # A: Request Cancelled / Out of Stock / On Hold / Not Permitted
+            request_cancelled_out_of_stock = len(unique_requests_df[
+                unique_requests_df['Final Answer'].isin(['Out of stock', 'On hold', 'Not permitted'])
+            ])
             
-        except Exception as e:
-            error_count += 1
-            print(f"   ❌ Error displaying email for {zbm_name}: {e}")
-            import traceback
-            traceback.print_exc()
-            continue
-    
-    print(f"\n🎉 Email display completed!")
-    print(f"✅ Successfully displayed: {success_count} emails")
-    print(f"❌ Failed to display: {error_count} emails")
-    print(f"\n📧 All emails are now open in Outlook for your review and manual sending")
-
-def create_summary_data(zbm_data, abms):
-    """Create summary data for email body"""
-    
-    summary_data = []
-    
-    for _, abm_row in abms.iterrows():
-        abm_code = abm_row['ABM Terr Code']
-        abm_name = abm_row['ABM Name']
-        tbm_hq = abm_row['TBM HQ']
+            # B: Action Pending at HO (but NOT the ones with "Has D Pending" = True)
+            # Those with Has D Pending = True should go to D (Pending for Invoicing)
+            action_pending_at_ho = len(unique_requests_df[
+                (unique_requests_df['Final Answer'].isin(['Action pending / In Process'])) &
+                (unique_requests_df['Has D Pending'] != True)
+            ])
+            
+            # D: Pending for Invoicing (Has D Pending = True)
+            pending_for_invoicing = len(unique_requests_df[unique_requests_df['Has D Pending'] == True])
+            
+            # E: Pending for Dispatch
+            pending_for_dispatch = len(unique_requests_df[
+                unique_requests_df['Final Answer'].isin(['Dispatch Pending'])
+            ])
+            
+            # G: Delivered
+            delivered = len(unique_requests_df[
+                unique_requests_df['Final Answer'].isin(['Delivered'])
+            ])
+            
+            # H: Dispatched & In Transit
+            dispatched_in_transit = len(unique_requests_df[
+                unique_requests_df['Final Answer'].isin(['Dispatched & In Transit'])
+            ])
+            
+            # I: RTO
+            rto = len(unique_requests_df[
+                unique_requests_df['Final Answer'].isin(['RTO'])
+            ])
+            
+            # Calculated fields following the formulas
+            # F = G + H + I (Requests Dispatched)
+            requests_dispatched = delivered + dispatched_in_transit + rto
+            
+            # C = D + E + F (Sent to HUB)
+            sent_to_hub = pending_for_invoicing + pending_for_dispatch + requests_dispatched
+            
+            # Requests Raised = A + B + C
+            requests_raised = request_cancelled_out_of_stock + action_pending_at_ho + sent_to_hub
+            
+            # RTO Reasons (placeholders - would need specific data)
+            incomplete_address = 0
+            doctor_non_contactable = 0
+            doctor_refused_to_accept = 0
+            hold_delivery = 0
+            
+            # Create Area Name: "ABM Terr Code and ABM HQ" as per template
+            if 'ABM HQ' in abm_row and pd.notna(abm_row['ABM HQ']):
+                abm_hq = abm_row['ABM HQ']
+            else:
+                abm_hq = tbm_hq  # Fallback to TBM HQ
+            area_name = f"{abm_code} and {abm_hq}"
+            
+            # Debug output
+            print(f"         Breakdown:")
+            print(f"           A (Cancelled/Out of Stock): {request_cancelled_out_of_stock}")
+            print(f"           B (Action Pending at HO): {action_pending_at_ho}")
+            print(f"           C (Sent to HUB): {sent_to_hub}")
+            print(f"           D (Pending for Invoicing): {pending_for_invoicing}")
+            print(f"           E (Pending for Dispatch): {pending_for_dispatch}")
+            print(f"           F (Requests Dispatched): {requests_dispatched}")
+            print(f"           G (Delivered): {delivered}")
+            print(f"           H (Dispatched In Transit): {dispatched_in_transit}")
+            print(f"           I (RTO): {rto}")
+            print(f"         Total Requests Raised (A+B+C): {requests_raised}")
+            
+            # Verification: requests_raised should equal unique_requests
+            if requests_raised != unique_requests:
+                print(f"         ⚠️  WARNING: Mismatch! Requests Raised ({requests_raised}) != Unique Requests ({unique_requests})")
+                print(f"         🔍 Checking for unmapped Final Answers:")
+                all_final_answers = unique_requests_df['Final Answer'].unique()
+                mapped_answers = ['Out of stock', 'On hold', 'Not permitted', 'Action pending / In Process', 
+                                'Dispatch Pending', 'Delivered', 'Dispatched & In Transit', 'RTO']
+                unmapped = [ans for ans in all_final_answers if ans not in mapped_answers]
+                if unmapped:
+                    print(f"         ⚠️  Unmapped Final Answers: {unmapped}")
+                    for unmapped_answer in unmapped:
+                        count = len(unique_requests_df[unique_requests_df['Final Answer'] == unmapped_answer])
+                        print(f"            '{unmapped_answer}': {count} requests")
+            
+            summary_data.append({
+                'Area Name': area_name,
+                'ABM Name': abm_name,
+                'Unique TBMs': unique_tbms,
+                'Unique HCPs': unique_hcps,
+                'Unique Requests': unique_requests,
+                'Requests Raised': requests_raised,
+                'Request Cancelled Out of Stock': request_cancelled_out_of_stock,
+                'Action Pending at HO': action_pending_at_ho,
+                'Sent to HUB': sent_to_hub,
+                'Pending for Invoicing': pending_for_invoicing,
+                'Pending for Dispatch': pending_for_dispatch,
+                'Requests Dispatched': requests_dispatched,
+                'Delivered': delivered,
+                'Dispatched In Transit': dispatched_in_transit,
+                'RTO': rto,
+                'Incomplete Address': incomplete_address,
+                'Doctor Non Contactable': doctor_non_contactable,
+                'Doctor Refused to Accept': doctor_refused_to_accept,
+                'Hold Delivery': hold_delivery
+            })
         
-        # Filter data for this specific ABM under this ZBM
-        abm_data = zbm_data[(zbm_data['ABM Terr Code'] == abm_code) & (zbm_data['ABM Name'] == abm_name)]
+        # Create DataFrame for this ZBM
+        zbm_summary_df = pd.DataFrame(summary_data)
         
-        # Calculate metrics
-        unique_tbms = abm_data['TBM EMAIL_ID'].nunique() if 'TBM EMAIL_ID' in abm_data.columns else 0
-        unique_hcps = abm_data['Doctor: Customer Code'].nunique()
-        unique_requests = abm_data['Assigned Request Ids'].nunique()
-        
-        # Status counts
-        request_cancelled_out_of_stock = abm_data[abm_data['Final Status'].isin(['Out of stock', 'On hold', 'Not permitted'])]['Assigned Request Ids'].nunique()
-        action_pending_at_ho = abm_data[abm_data['Final Status'].isin(['Action pending / In Process'])]['Assigned Request Ids'].nunique()
-        pending_for_invoicing = abm_data[abm_data['Final Status'].isin(['Dispatch Pending'])]['Assigned Request Ids'].nunique()
-        pending_for_dispatch = abm_data[abm_data['Final Status'].isin(['Dispatch Pending'])]['Assigned Request Ids'].nunique()
-        delivered = abm_data[abm_data['Final Status'].isin(['Delivered'])]['Assigned Request Ids'].nunique()
-        dispatched_in_transit = abm_data[abm_data['Final Status'].isin(['Dispatched & In Transit'])]['Assigned Request Ids'].nunique()
-        rto = abm_data[abm_data['Final Status'].isin(['RTO'])]['Assigned Request Ids'].nunique()
-        
-        # Calculated fields
-        requests_dispatched = delivered + dispatched_in_transit + rto
-        sent_to_hub = pending_for_invoicing + pending_for_dispatch + requests_dispatched
-        requests_raised = request_cancelled_out_of_stock + action_pending_at_ho + sent_to_hub
-        
-        # Create Area Name
-        area_name = f"{abm_code} and {tbm_hq}"
-        
-        summary_data.append({
-            'Area Name': area_name,
-            'ABM Name': abm_name,
-            'Unique TBMs': unique_tbms,
-            'Unique HCPs': unique_hcps,
-            'Unique Requests': unique_requests,
-            'Requests Raised': requests_raised,
-            'Request Cancelled Out of Stock': request_cancelled_out_of_stock,
-            'Action Pending at HO': action_pending_at_ho,
-            'Sent to HUB': sent_to_hub,
-            'Pending for Invoicing': pending_for_invoicing,
-            'Pending for Dispatch': pending_for_dispatch,
-            'Requests Dispatched': requests_dispatched,
-            'Delivered': delivered,
-            'Dispatched In Transit': dispatched_in_transit,
-            'RTO': rto
-        })
+        # Create Excel file for this ZBM
+        create_zbm_excel_report(zbm_code, zbm_name, zbm_email, zbm_summary_df, output_dir)
     
-    return summary_data
+    print(f"\n🎉 Successfully created {len(zbms)} ZBM reports in directory: {output_dir}")
 
-def generate_email_content(zbm_name, zbm_email, abms, summary_df):
-    """Generate professional email content"""
-    
-    current_date = datetime.now().strftime('%B %d, %Y')
-    
-    # Get ABM emails for CC
-    abm_emails = abms['ABM EMAIL_ID'].dropna().unique().tolist()
-    cc_emails = '; '.join(abm_emails)  # Use semicolon for Outlook
-    
-    # Create summary table HTML
-    table_html = create_summary_table_html(summary_df)
-    
-    email_content = f"""
-<html>
-<body style="font-family: Arial, sans-serif;">
-<p>Hi {zbm_name},</p>
-
-<p>Please refer the status Sample requests raised in Abbworld for your area.</p>
-
-{table_html}
-
-<p>You can track your sample request at the following link with the Docket Number:</p>
-
-<p>DTDC: <a href="https://www.dtdc.com/tracking">Click here</a></p>
-
-<p>Speed Post: <a href="https://www.indiapost.gov.in/vas/Pages/IndiaPostHome.aspx">Click Here</a></p>
-
-<p>In case of any query, please contact 1Point.</p>
-
-<p>Regards,<br>Umesh Pawar.</p>
-</body>
-</html>
-"""
-    
-    return email_content, cc_emails
-
-def create_summary_table_html(summary_df):
-    """Create HTML table for summary data"""
-    
-    if summary_df.empty:
-        return "<p>No data available</p>"
-    
-    # Create HTML table with professional styling
-    html = """
-    <table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; width: 100%; font-family: Arial, sans-serif;'>
-    """
-    
-    # Header row
-    html += "<tr style='background-color: #4472C4; color: white; font-weight: bold;'>"
-    html += "<th>Area Name</th>"
-    html += "<th>ABM Name</th>"
-    html += "<th># Unique TBMs</th>"
-    html += "<th># Unique HCPs</th>"
-    html += "<th># Requests Raised</th>"
-    html += "<th>Request Cancelled Out of Stock</th>"
-    html += "<th>Action Pending at HO</th>"
-    html += "<th>Sent to HUB</th>"
-    html += "<th>Pending for Invoicing</th>"
-    html += "<th>Pending for Dispatch</th>"
-    html += "<th>Requests Dispatched</th>"
-    html += "<th>Delivered</th>"
-    html += "<th>Dispatched In Transit</th>"
-    html += "<th>RTO</th>"
-    html += "</tr>"
-    
-    # Data rows
-    for _, row in summary_df.iterrows():
-        html += "<tr>"
-        html += f"<td>{row['Area Name']}</td>"
-        html += f"<td>{row['ABM Name']}</td>"
-        html += f"<td style='text-align: center;'>{row['Unique TBMs']}</td>"
-        html += f"<td style='text-align: center;'>{row['Unique HCPs']}</td>"
-        html += f"<td style='text-align: center;'>{row['Requests Raised']}</td>"
-        html += f"<td style='text-align: center;'>{row['Request Cancelled Out of Stock']}</td>"
-        html += f"<td style='text-align: center;'>{row['Action Pending at HO']}</td>"
-        html += f"<td style='text-align: center;'>{row['Sent to HUB']}</td>"
-        html += f"<td style='text-align: center;'>{row['Pending for Invoicing']}</td>"
-        html += f"<td style='text-align: center;'>{row['Pending for Dispatch']}</td>"
-        html += f"<td style='text-align: center;'>{row['Requests Dispatched']}</td>"
-        html += f"<td style='text-align: center;'>{row['Delivered']}</td>"
-        html += f"<td style='text-align: center;'>{row['Dispatched In Transit']}</td>"
-        html += f"<td style='text-align: center;'>{row['RTO']}</td>"
-        html += "</tr>"
-    
-    # Total row
-    html += "<tr style='background-color: #D9E1F2; font-weight: bold;'>"
-    html += "<td colspan='2'>TOTAL</td>"
-    html += f"<td style='text-align: center;'>{summary_df['Unique TBMs'].sum()}</td>"
-    html += f"<td style='text-align: center;'>{summary_df['Unique HCPs'].sum()}</td>"
-    html += f"<td style='text-align: center;'>{summary_df['Requests Raised'].sum()}</td>"
-    html += f"<td style='text-align: center;'>{summary_df['Request Cancelled Out of Stock'].sum()}</td>"
-    html += f"<td style='text-align: center;'>{summary_df['Action Pending at HO'].sum()}</td>"
-    html += f"<td style='text-align: center;'>{summary_df['Sent to HUB'].sum()}</td>"
-    html += f"<td style='text-align: center;'>{summary_df['Pending for Invoicing'].sum()}</td>"
-    html += f"<td style='text-align: center;'>{summary_df['Pending for Dispatch'].sum()}</td>"
-    html += f"<td style='text-align: center;'>{summary_df['Requests Dispatched'].sum()}</td>"
-    html += f"<td style='text-align: center;'>{summary_df['Delivered'].sum()}</td>"
-    html += f"<td style='text-align: center;'>{summary_df['Dispatched In Transit'].sum()}</td>"
-    html += f"<td style='text-align: center;'>{summary_df['RTO'].sum()}</td>"
-    html += "</tr>"
-    
-    html += "</table>"
-    
-    return html
-
-def display_single_email(outlook, zbm_email, cc_emails, email_content, zbm_code, zbm_name):
-    """Display a single email in Outlook for review (without sending)"""
+def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_dir):
+    """Create Excel report for a specific ZBM with perfect formatting"""
     
     try:
-        # Create new mail item
-        mail = outlook.CreateItem(0)  # 0 = olMailItem
+        from openpyxl import load_workbook
+        from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+        from copy import copy as copy_style
+
+        # Load template
+        wb = load_workbook('zbm_summary.xlsx')
+        ws = wb['ZBM']
+
+        print(f"   📋 Creating Excel report for {zbm_code}...")
+
+        # Clear data area (rows 4 onwards) - preserve headers
+        data_start_row = 3  # Data starts from row 4 (index 3)
+        max_clear_rows = max(len(summary_df) + 10, 100)
         
-        # Set recipients
-        mail.To = zbm_email
+        # Handle merged cells properly
+        merged_ranges_to_remove = []
+        for merged_range in ws.merged_cells.ranges:
+            if (merged_range.min_row >= data_start_row + 1 and 
+                merged_range.min_col >= 2 and 
+                merged_range.max_col <= 19):
+                merged_ranges_to_remove.append(merged_range)
         
-        # Set CC recipients
-        if cc_emails:
-            mail.CC = cc_emails
+        # Remove merged cells in data area
+        for merged_range in merged_ranges_to_remove:
+            ws.unmerge_cells(str(merged_range))
         
-        # Set subject
-        current_date = datetime.now().strftime('%B %d, %Y')
-        mail.Subject = f"Sample Direct Dispatch to Doctors - Request Status as of {current_date}"
+        # Clear data area
+        for r in range(data_start_row + 1, data_start_row + max_clear_rows):
+            for c in range(2, 21):  # Columns B to T
+                cell = ws.cell(row=r, column=c)
+                cell.value = None
+
+        # Define exact column mapping based on template structure
+        column_mapping = {
+            'Area Name': 2,           # Column B
+            'ABM Name': 3,           # Column C  
+            'Unique TBMs': 4,        # Column D
+            'Unique HCPs': 5,        # Column E
+            'Unique Requests': 6,     # Column F
+            'Requests Raised': 7,     # Column G
+            'Request Cancelled Out of Stock': 8,  # Column H
+            'Action Pending at HO': 9,            # Column I
+            'Sent to HUB': 10,                   # Column J
+            'Pending for Invoicing': 11,         # Column K
+            'Pending for Dispatch': 12,          # Column L
+            'Requests Dispatched': 13,           # Column M
+            'Delivered': 14,                     # Column N
+            'Dispatched In Transit': 15,         # Column O
+            'RTO': 16,                           # Column P
+            'Incomplete Address': 17,            # Column Q
+            'Doctor Non Contactable': 18,        # Column R
+            'Doctor Refused to Accept': 19,      # Column S
+            'Hold Delivery': 20                 # Column T
+        }
+
+        def copy_row_style(src_row_idx, dst_row_idx):
+            """Copy formatting from source row to destination row"""
+            for c in range(2, 21):  # Columns B to T
+                src = ws.cell(row=src_row_idx, column=c)
+                dst = ws.cell(row=dst_row_idx, column=c)
+                
+                if src.font:
+                    dst.font = copy_style(src.font)
+                if src.alignment:
+                    dst.alignment = copy_style(src.alignment)
+                if src.border:
+                    dst.border = copy_style(src.border)
+                if src.fill:
+                    dst.fill = copy_style(src.fill)
+                dst.number_format = src.number_format
+
+        def write_to_cell_safely(row, col, value, formatting_func=None):
+            """Write to a cell safely"""
+            cell = ws.cell(row=row, column=col)
+            cell.value = value
+            
+            if formatting_func:
+                formatting_func(cell)
+            
+            return cell
+
+        # Write data rows
+        for i in range(len(summary_df)):
+            target_row = data_start_row + 1 + i  # Start from row 4
+            if target_row > ws.max_row:
+                ws.insert_rows(target_row)
+            
+            # Copy formatting from template row 4
+            copy_row_style(4, target_row)
+            
+            # Write data according to exact column mapping
+            for col_name, col_num in column_mapping.items():
+                if col_name in summary_df.columns:
+                    value = summary_df.at[i, col_name]
+                    
+                    def apply_number_formatting(cell):
+                        if isinstance(value, (int, float)) and not pd.isna(value):
+                            cell.number_format = '0'  # Integer format
+                    
+                    write_to_cell_safely(target_row, col_num, value, apply_number_formatting)
+
+        # Add total row
+        total_row = data_start_row + 1 + len(summary_df)
+        if total_row > ws.max_row:
+            ws.insert_rows(total_row)
         
-        # Set body
-        mail.HTMLBody = email_content
+        # Copy formatting for total row
+        copy_row_style(4, total_row)
         
-        # Find and attach ZBM Summary file
-        zbm_summary_file = find_latest_zbm_summary_file(zbm_code, zbm_name)
-        if zbm_summary_file and os.path.exists(zbm_summary_file):
-            try:
-                mail.Attachments.Add(zbm_summary_file)
-                print(f"   📎 Attached ZBM Summary: {os.path.basename(zbm_summary_file)}")
-            except Exception as e:
-                print(f"   ⚠️  Failed to attach ZBM Summary: {e}")
+        # Write totals
+        def apply_total_formatting(cell):
+            cell.font = Font(bold=True, name='Arial', size=10)
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+        
+        write_to_cell_safely(total_row, 2, None)  # Empty first column
+        write_to_cell_safely(total_row, 3, "Total", apply_total_formatting)
+        
+        # Calculate and write totals for each column
+        for col_name, col_num in column_mapping.items():
+            if col_name in summary_df.columns and col_name not in ['Area Name', 'ABM Name']:
+                total_value = summary_df[col_name].sum()
+                
+                def apply_total_value_formatting(cell):
+                    cell.font = Font(bold=True, name='Arial', size=10)
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                    if isinstance(total_value, (int, float)) and not pd.isna(total_value):
+                        cell.number_format = '0'  # Integer format
+                
+                write_to_cell_safely(total_row, col_num, total_value, apply_total_value_formatting)
+
+        # Save file
+        safe_zbm_name = str(zbm_name).replace(' ', '_').replace('/', '_').replace('\\', '_')
+        filename = f"ZBM_Summary_{zbm_code}_{safe_zbm_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        filepath = os.path.join(output_dir, filename)
+        
+        wb.save(filepath)
+        print(f"   ✅ Created: {filename}")
+        
+        # Print summary statistics with verification
+        total_unique_requests = summary_df['Unique Requests'].sum()
+        total_requests_raised = summary_df['Requests Raised'].sum()
+        
+        print(f"   📊 Summary for {zbm_code}:")
+        print(f"      Total ABMs: {len(summary_df)}")
+        print(f"      Total Unique HCPs: {summary_df['Unique HCPs'].sum()}")
+        print(f"      Total Unique Requests: {total_unique_requests}")
+        print(f"      Total Requests Raised: {total_requests_raised}")
+        
+        if total_unique_requests != total_requests_raised:
+            print(f"      ⚠️  WARNING: Unique Requests ({total_unique_requests}) != Requests Raised ({total_requests_raised})")
         else:
-            print(f"   ⚠️  ZBM Summary file not found for {zbm_code}")
+            print(f"      ✅ VERIFIED: Unique Requests = Requests Raised (Perfect Match!)")
         
-        # Find and attach Consolidated file
-        consolidated_file = find_latest_consolidated_file(zbm_code, zbm_name)
-        if consolidated_file and os.path.exists(consolidated_file):
-            try:
-                mail.Attachments.Add(consolidated_file)
-                print(f"   📎 Attached Consolidated: {os.path.basename(consolidated_file)}")
-            except Exception as e:
-                print(f"   ⚠️  Failed to attach Consolidated file: {e}")
-        else:
-            print(f"   ⚠️  Consolidated file not found for {zbm_code}")
+        print(f"      Total Delivered: {summary_df['Delivered'].sum()}")
+        print(f"      Total RTO: {summary_df['RTO'].sum()}")
         
-        # D
+    except Exception as e:
+        print(f"   ❌ Error creating Excel report for {zbm_code}: {e}")
+        import traceback
+        traceback.print_exc()
+
+if __name__ == "__main__":
+    create_zbm_hierarchical_reports()
