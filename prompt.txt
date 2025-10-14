@@ -1,0 +1,12 @@
+the attached 3 files are used to create zbm summary report, their consolidated file and send email to the 
+respective zbm and cc abm. 
+it correctly creates zbm summary and consolidated file but
+it doesn't uses the already created zbm summary file 
+to send on mail and neither the consolidated file is attached.
+it correctly add's zbm email in To: and the zbm's abm in the Cc:
+but the consolidated file is not attached and the already created zbm summary report is not used to send in html format.
+the zbm summary report is in "ZBM Reports" file and consolidated
+files are in "consolidated files" folder.
+
+please make sure everything works perfectly accurate as this will be used 
+in real-world prod
