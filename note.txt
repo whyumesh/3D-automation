@@ -1,0 +1,30 @@
+# Generate summary reports (for email body):
+python create_zbm_hierarchical_reports.py
+
+# Generate consolidated files (for email attachments):
+python create_zbm_consolidated_files.py
+
+# OR run both together:
+python create_complete_zbm_reports.py
+
+# This will open emails in Outlook for review and sending:
+python send_zbm_emails.py
+
+
+your-project-folder/
+├── Sample Master Tracker.xlsx          # Your data source
+├── logic.xlsx                          # Business rules
+├── zbm_summary.xlsx                    # Template
+├── ZBM_Reports_YYYYMMDD_HHMMSS/       # Summary reports
+│   ├── ZBM_Summary_ZN000881_Manager1.xlsx
+│   ├── ZBM_Summary_ZN000882_Manager2.xlsx
+│   └── ...
+├── ZBM_Consolidated_Files_YYYYMMDD_HHMMSS/  # Detailed files
+│   ├── ZBM_Consolidated_ZN000881_Manager1.xlsx
+│   ├── ZBM_Consolidated_ZN000882_Manager2.xlsx
+│   └── ...
+└── ZBM_HTML_Emails_YYYYMMDD_HHMMSS/   # Email files (if fallback used)
+    ├── HTML_Email_ZN000881_Manager1.html
+    ├── TEXT_Email_ZN000881_Manager1.txt
+    ├── Instructions_ZN000881_Manager1.txt
+    └── ...
