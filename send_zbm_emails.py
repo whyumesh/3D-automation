@@ -186,7 +186,7 @@ def send_zbm_emails():
             
             # Generate email content
             email_content, cc_emails = generate_email_content(zbm_name, zbm_email, abms, summary_df)
-            
+            print(f"To: {zbm_email}, CC: {cc_emails}")
             # Display email in Outlook (without sending)
             display_single_email(outlook, zbm_email, cc_emails, email_content, zbm_code, zbm_name)
             
@@ -384,7 +384,7 @@ def display_single_email(outlook, zbm_email, cc_emails, email_content, zbm_code,
     if consolidated_file and os.path.exists(consolidated_file):
         mail.Attachments.Add(consolidated_file)
         print(f"   📎 Attached: {os.path.basename(consolidated_file)}")
-    
+
     # Display email (don't send)
     mail.Display()
     
@@ -393,16 +393,21 @@ def display_single_email(outlook, zbm_email, cc_emails, email_content, zbm_code,
         print(f"   📧 CC'd to: {cc_emails}")
     print(f"   ⚠️  Review the email and send manually from Outlook")
 
+import os
+
 def find_consolidated_file(zbm_code, zbm_name):
-    """Find the consolidated file for this ZBM"""
+    # Assuming files are stored in a folder named 'consolidated_files' in the root directory
+    root_dir = os.getcwd()  # Gets the current working directory
+    folder_name = "consolidated_files"
     
-    # Look for consolidated files in current directory and subdirectories
-    for root, dirs, files in os.walk('.'):
-        for file in files:
-            if file.startswith(f"ZBM_Consolidated_{zbm_code}_") and file.endswith('.xlsx'):
-                return os.path.join(root, file)
+    # Construct filename (adjust this logic based on your actual naming convention)
+    filename = f"{zbm_code}_{zbm_name}_consolidated.xlsx"
     
-    return None
+    # Build full path
+    full_path = os.path.join(root_dir, folder_name, filename)
+    
+    # Return absolute path
+    return os.path.abspath(full_path)
 
 def create_html_email_files(df, zbms):
     """Create HTML email files as fallback when Outlook is not available"""
