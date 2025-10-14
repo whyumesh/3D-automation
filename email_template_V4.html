@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Project 3D</title>
+    <style>
+        body { font-family:Calibri , sans-serif; margin: 20px; }
+        table {
+            width: 90%;  /* Adjust width as needed */
+            border-collapse: collapse;
+            margin-top: 10px;
+            table-layout: fixed; /* Makes the table layout fixed */
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 2px; /* Reduce padding */
+            text-align: center; /* Center-align content */
+            word-wrap: break-word; /* Ensures text wraps inside cells */
+        }
+        th {
+            background-color: #f2f2f2;
+            font-size: 16px; /* Reduce font size */
+        }
+        td {
+            font-size: 15px; /* Reduce font size for compactness */
+        }
+    </style>
+</head>
+<body>
+ 
+<p>Hi,</p>
+ 
+<p>Please refer the status of your sample request raised in Abbworld.</p>
+ 
+<table border="1">
+    <tr>
+      <th>Affiliate</th>  
+      <th>Requested Date</th>
+      <th>Request ID</th>
+      <th>Doctor Code</th>
+      <th>SAP Customer Code</th>
+      <th>Doctor Name</th>
+      <th>Item Code</th>
+      <th>SKU Name</th>
+      <th>Requested Quantity</th>
+      <th>Docket Number</th>
+      <th>Transporter Name</th>
+      <th>Dispatch Date</th>
+      <th>Delivery Date</th>
+      <th>Request Status</th>
+      <th>Rto Reason</th>
+
+    </tr>
+    {% for row in rows %}
+    <tr>
+      <td>{{ row.Affiliate }}</td>
+      <td>{{ row.Requested_Date }}</td>
+      <td>{{ row.Request_ID }}</td>
+      <td>{{ row.Doctor_Code }}</td>
+      <td>{{ row.SAP_Customer_Code }}</td>
+      <td>{{ row.Doctor_Name }}</td>
+      <td>{{ row.Item_Code }}</td>
+      <td>{{ row.SKU_Name }}</td>
+      <td>{{ row.Requested_Quantity }}</td>
+      <td>{{ row.Docket_number }}</td>
+      <td>{{ row.Transporter_name }}</td>
+      <td>{{ row.Dispatch_Date }}</td>
+      <td>{{ row.Delivery_Date }}</td>
+      <td>{{ row.Request_Status }}</td>
+      <td>{{ row.Rto_Reason }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+
+<p>You can track your sample request at the following link with the Docket Number:</p>
+
+<p>
+  DTDC: <a href="https://dtdc.in/trace.asp">Click Here</a>
+</p>
+
+<p>
+  Speed Post: <a href="https://www.indiapost.gov.in/_layouts/15/dop.portal.tracking/trackconsignment.aspx">Click Here</a>
+</p>
+
+<p>In case of any query, please contact 1Point.</p>
+ 
+<p>Regards,</p>
+<p><b>Abbworld Team</b></p>
+ 
+</body>
+</html>
