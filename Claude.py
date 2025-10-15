@@ -226,20 +226,31 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
         print(f"   📋 Creating Excel report for {zbm_code}...")
 
         # First, identify the header row by looking for "Area Name"
+        # Need to handle merged cells properly
         header_row = None
-        for row_idx in range(1, 15):  # Check first 15 rows
-            cell_value = ws.cell(row=row_idx, column=1).value
-            if cell_value and 'Area Name' in str(cell_value):
-                header_row = row_idx
-                break
         
-        if header_row is None:
-            # Try column E (5) if not in column A
-            for row_idx in range(1, 15):
-                cell_value = ws.cell(row=row_idx, column=5).value
+        def get_cell_value_handling_merged(row, col):
+            """Get cell value even if it's part of a merged cell"""
+            cell = ws.cell(row=row, column=col)
+            
+            # Check if this cell is part of a merged range
+            for merged_range in ws.merged_cells.ranges:
+                if cell.coordinate in merged_range:
+                    # Get the top-left cell of the merged range
+                    top_left_cell = ws.cell(row=merged_range.min_row, column=merged_range.min_col)
+                    return top_left_cell.value
+            
+            return cell.value
+        
+        # Search for header row
+        for row_idx in range(1, 15):  # Check first 15 rows
+            for col_idx in range(1, min(30, ws.max_column + 1)):  # Check first 30 columns
+                cell_value = get_cell_value_handling_merged(row_idx, col_idx)
                 if cell_value and 'Area Name' in str(cell_value):
                     header_row = row_idx
                     break
+            if header_row:
+                break
         
         if header_row is None:
             print(f"   ⚠️ Could not find header row in template, using row 7 as default")
@@ -248,10 +259,10 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
         print(f"   ℹ️ Detected header row: {header_row}")
         data_start_row = header_row + 1
         
-        # Read actual column positions from template header row
+        # Read actual column positions from template header row, handling merged cells
         column_mapping = {}
-        for col_idx in range(1, ws.max_column + 1):
-            header_val = ws.cell(row=header_row, column=col_idx).value
+        for col_idx in range(1, min(30, ws.max_column + 1)):
+            header_val = get_cell_value_handling_merged(header_row, col_idx)
             if header_val:
                 header_str = str(header_val).strip()
                 
@@ -295,6 +306,32 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
         
         print(f"   ℹ️ Detected {len(column_mapping)} columns: {list(column_mapping.keys())}")
         
+        # Verify we have the essential columns
+        essential_cols = ['Area Name', 'ABM Name', 'Unique TBMs', 'Unique HCPs', 'Requests Raised']
+        missing_essential = [col for col in essential_cols if col not in column_mapping]
+        if missing_essential:
+            print(f"   ⚠️ WARNING: Missing essential columns in template: {missing_essential}")
+            print(f"   ℹ️ Available columns in template:")
+            for row_idx in range(header_row, min(header_row + 3, ws.max_row + 1)):
+                row_vals = [str(ws.cell(row=row_idx, column=c).value) for c in range(1, ws.max_column + 1)]
+                print(f"      Row {row_idx}: {row_vals}")
+        
+        # Print summary_df to verify data exists
+        print(f"   ℹ️ Summary DataFrame shape: {summary_df.shape}")
+        print(f"   ℹ️ Summary DataFrame columns: {list(summary_df.columns)}")
+        if len(summary_df) > 0:
+            print(f"   ℹ️ First row sample: Area={summary_df.iloc[0]['Area Name']}, ABM={summary_df.iloc[0]['ABM Name']}, TBMs={summary_df.iloc[0]['Unique TBMs']}")
+        else:
+            print(f"   ⚠️ WARNING: Summary DataFrame is empty!")
+            return
+        
+        # Debug: Print all headers with their values from template
+        print(f"   🔍 Template headers found:")
+        for col_idx in range(1, min(30, ws.max_column + 1)):
+            val = get_cell_value_handling_merged(header_row, col_idx)
+            if val:
+                print(f"      Column {col_idx}: '{val}'")
+        
         # Clear existing data rows (preserve header)
         max_clear_rows = max(len(summary_df) + 10, 50)
         for r in range(data_start_row, data_start_row + max_clear_rows):
@@ -335,7 +372,11 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
             # Write data to mapped columns
             for col_name, col_idx in column_mapping.items():
                 if col_name in summary_df.columns:
-                    value = summary_df.at[i, col_name]
+                    value = summary_df.iloc[i][col_name]  # Use iloc for safer access
+                    
+                    # Debug print for first row
+                    if i == 0:
+                        print(f"      Writing '{col_name}' = {value} to column {col_idx}")
                     
                     try:
                         cell = ws.cell(row=target_row, column=col_idx)
@@ -361,20 +402,21 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
             except:
                 pass
         
-        # Calculate and write totals
+        # # Calculate and write totals
         for col_name, col_idx in column_mapping.items():
             if col_name in summary_df.columns and col_name not in ['Area Name', 'ABM Name']:
-                total_value = summary_df[col_name].sum()
+                total_value = int(summary_df[col_name].sum())  # Ensure it's an integer
+                
+                print(f"      Writing Total '{col_name}' = {total_value} to column {col_idx}")
                 
                 try:
                     cell = ws.cell(row=total_row, column=col_idx)
                     cell.value = total_value
                     cell.font = Font(bold=True, name='Arial', size=10)
                     cell.alignment = Alignment(horizontal='center', vertical='center')
-                    if isinstance(total_value, (int, float)) and not pd.isna(total_value):
-                        cell.number_format = '0'
-                except:
-                    pass
+                    cell.number_format = '0'
+                except Exception as e:
+                    print(f"      Warning: Could not write total to cell ({total_row}, {col_idx}): {e}")
 
         # Save file
         safe_zbm_name = str(zbm_name).replace(' ', '_').replace('/', '_').replace('\\', '_')
