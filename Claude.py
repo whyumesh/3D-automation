@@ -166,7 +166,7 @@ def create_zbm_hierarchical_reports():
             # Delivery Status (G + H + I)
             delivered = abm_data[abm_data['Request Status'].isin(['Delivered'])]['Assigned Request Ids'].nunique()
             dispatched_in_transit = abm_data[abm_data['Request Status'].isin(['Dispatched & In Transit'])]['Assigned Request Ids'].nunique()
-            rto = abm_data[abm_data['Request Status'].isin(['RTO'])]['Assigned Request Ids'].nunique()
+            # Note: RTO will be calculated from RTO Reasons below, not from Request Status
             
             # RTO Reasons
             incomplete_address = abm_data[abm_data['Rto Reason'].str.contains('Incomplete Address', na=False)]['Assigned Request Ids'].nunique()
@@ -402,7 +402,7 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
             except:
                 pass
         
-        # # Calculate and write totals
+        # Calculate and write totals
         for col_name, col_idx in column_mapping.items():
             if col_name in summary_df.columns and col_name not in ['Area Name', 'ABM Name']:
                 total_value = int(summary_df[col_name].sum())  # Ensure it's an integer
