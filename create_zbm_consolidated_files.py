@@ -69,25 +69,41 @@ def create_zbm_consolidated_files():
     df = df[df['ZBM Terr Code'].astype(str).str.startswith('ZN')]
     print(f"📊 After cleaning and ZBM filtering: {len(df)} records remaining")
     
-    # Compute Final Status per unique request id using rules from logic.xlsx
+    # Compute Final Answer per unique request id using rules from logic.xlsx
     print("🧠 Computing final status per unique Request Id using rules...")
     try:
         xls_rules = pd.ExcelFile('logic.xlsx')
+        sheet2 = pd.read_excel(xls_rules, 'Sheet2')
+
+        def normalize(text):
+            return str(text).strip().casefold()
+
+        rules = {}
+        for _, row in sheet2.iterrows():
+            statuses = [normalize(s) for s in row.drop('Final Answer').dropna().tolist()]
+            statuses = tuple(sorted(set(statuses)))
+            rules[statuses] = row['Final Answer']
+
+        # Group statuses by request id from master data
+        grouped = df.groupby('Assigned Request Ids')['Request Status'].apply(list).reset_index()
+
+        def get_final_answer(status_list):
+            key = tuple(sorted(set(normalize(s) for s in status_list)))
+            return rules.get(key, '❌ No matching rule')
+
+        grouped['Request Status'] = grouped['Request Status'].apply(lambda lst: sorted(set(lst), key=str))
+        grouped['Final Answer'] = grouped['Request Status'].apply(get_final_answer)
+
+        def has_action_pending(status_list):
+            target = 'action pending / in process'
+            return any(normalize(s) == target for s in status_list)
+        grouped['Has D Pending'] = grouped['Request Status'].apply(has_action_pending)
+
+        # Merge Final Answer back to main dataframe
+        df = df.merge(grouped[['Assigned Request Ids', 'Final Answer', 'Has D Pending']], on='Assigned Request Ids', how='left')
         
-        # Read the rules sheet
-        rules_df = pd.read_excel(xls_rules, 'Rules')
-        
-        # Create a mapping of request status to final answer
-        status_mapping = {}
-        for _, row in rules_df.iterrows():
-            if pd.notna(row['Request Status']) and pd.notna(row['Final Answer']):
-                status_mapping[row['Request Status']] = row['Final Answer']
-        
-        # Apply the mapping to create Final Answer column
-        df['Final Status'] = df['Request Status'].map(status_mapping)
-        
-        # Handle any unmapped statuses
-        df['Final Status'] = df['Final Status'].fillna(df['Request Status'])
+        # Use Final Answer as Final Status
+        df['Final Status'] = df['Final Answer']
         
         print(f"✅ Successfully computed final status for all records")
         
@@ -136,6 +152,14 @@ def create_zbm_consolidated_files():
         # Create consolidated data for this ZBM
         consolidated_data = zbm_data[consolidated_columns].copy()
         
+        # Format date columns to show only date without time
+        date_columns = ['Date', 'Invoice Date', 'Dispatch Date', 'Delivery Date']
+        for col in date_columns:
+            if col in consolidated_data.columns:
+                # Convert to datetime and format as date only
+                consolidated_data[col] = pd.to_datetime(consolidated_data[col], errors='coerce').dt.date
+                print(f"   📅 Formatted {col} column to date-only format")
+        
         # Sort by ABM Terr Code and then by Assigned Request Ids
         consolidated_data = consolidated_data.sort_values(['ABM Terr Code', 'Assigned Request Ids'])
         
@@ -177,6 +201,20 @@ def create_zbm_consolidated_files():
                     cell.font = header_font
                     cell.fill = header_fill
                     cell.alignment = header_alignment
+                
+                # Format date columns in Excel
+                date_columns_excel = ['Date', 'Invoice Date', 'Dispatch Date', 'Delivery Date']
+                for col_name in date_columns_excel:
+                    if col_name in consolidated_data.columns:
+                        # Find the column index
+                        col_idx = consolidated_data.columns.get_loc(col_name) + 1  # +1 because Excel is 1-indexed
+                        col_letter = worksheet.cell(row=1, column=col_idx).column_letter
+                        
+                        # Apply date format to all data cells in this column
+                        for row in range(2, worksheet.max_row + 1):  # Start from row 2 (skip header)
+                            cell = worksheet.cell(row=row, column=col_idx)
+                            if cell.value is not None:
+                                cell.number_format = 'dd/mm/yyyy'  # Date format without time
             
             print(f"   ✅ Created: {filename}")
             print(f"   📊 Records in consolidated file: {len(consolidated_data)}")
