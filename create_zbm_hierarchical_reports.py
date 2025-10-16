@@ -27,8 +27,8 @@ def create_zbm_hierarchical_reports():
         print(f"❌ Error reading Sample Master Tracker.xlsx: {e}")
         return
     
-    # Using raw Request Status field from Sample Master Tracker (no Final Status computation needed)
-    print("📊 Using raw Request Status field from Sample Master Tracker for accurate counts...")
+    # Using Final Answer field computed from Request Status using business rules
+    print("📊 Using Final Answer field computed from Request Status using business rules for accurate counts...")
     
     # Clean and prepare data
     print("🧹 Cleaning and preparing data...")
@@ -106,22 +106,10 @@ def create_zbm_hierarchical_reports():
             print(f"      - {abm_row['ABM Terr Code']}: {abm_row['ABM Name']}")
     
     # Create output directory
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    timestamp = datetime.now().strftime('%Y%m%d')
     output_dir = f"ZBM_Reports_{timestamp}"
     os.makedirs(output_dir, exist_ok=True)
     print(f"📁 Created output directory: {output_dir}")
-    
-    # Define status categories for calculations
-    status_categories = {
-        'out_of_stock_on_hold': ['Out of stock', 'On hold', 'Not permitted'],
-        'request_raised': ['Request Raised'],
-        'delivered_return_action_pending': ['Delivered', 'Return', 'Action pending / In Process', 'Dispatched & In Transit', 'Dispatch Pending'],
-        'action_pending': ['Action pending / In Process'],
-        'dispatch_pending': ['Dispatch Pending'],
-        'delivered': ['Delivered'],
-        'dispatched_in_transit': ['Dispatched & In Transit'],
-        'rto': ['RTO']
-    }
     
     # Process each ZBM
     for _, zbm_row in zbms.iterrows():
@@ -138,25 +126,15 @@ def create_zbm_hierarchical_reports():
             print(f"⚠️ No data found for ZBM: {zbm_code}")
             continue
         
-        # Get unique ABMs under this ZBM (properly filtered and aggregated)
-        # Group by ABM Terr Code and ABM Name to avoid duplicates
+        # Get unique ABMs under this ZBM
         abms = zbm_data.groupby(['ABM Terr Code', 'ABM Name']).agg({
             'ABM EMAIL_ID': 'first',
             'TBM HQ': 'first',
             'ABM HQ': 'first' if 'ABM HQ' in zbm_data.columns else lambda x: None
         }).reset_index()
         
-        # Sort by ABM Terr Code
         abms = abms.sort_values('ABM Terr Code')
         print(f"   📊 Found {len(abms)} ABMs under this ZBM")
-        
-        # Debug: Show ABM names to verify filtering
-        abm_names = abms['ABM Name'].tolist()
-        print(f"   📋 ABMs under {zbm_code}: {abm_names}")
-        
-        # Validate that Rashmi Sharma appears only in her ZBM
-        if 'Rashmi Sharma' in abm_names:
-            print(f"   ⚠️ Rashmi Sharma found in {zbm_code} - {zbm_name}")
         
         # Create summary data for this ZBM
         summary_data = []
@@ -167,56 +145,51 @@ def create_zbm_hierarchical_reports():
             abm_email = abm_row['ABM EMAIL_ID']
             tbm_hq = abm_row['TBM HQ']
             
-            # Filter data for this specific ABM (by both code and name to ensure uniqueness)
+            # Filter data for this specific ABM
             abm_data = zbm_data[(zbm_data['ABM Terr Code'] == abm_code) & (zbm_data['ABM Name'] == abm_name)]
             
             print(f"      Processing {abm_name} ({abm_code}): {len(abm_data)} records")
             
-            # Calculate metrics for this ABM following the template structure
-            
-            # Basic counts - using correct columns
+            # Calculate metrics for this ABM
             unique_tbms = abm_data['TBM EMAIL_ID'].nunique() if 'TBM EMAIL_ID' in abm_data.columns else 0
             unique_hcps = abm_data['Doctor: Customer Code'].nunique()
             unique_requests = abm_data['Assigned Request Ids'].nunique()
             
-            print(f"         Unique TBMs: {unique_tbms}, Unique HCPs: {unique_hcps}, Unique Requests: {unique_requests}")
+            # HO Section (A + B) - Using Final Answer instead of Request Status
+            # Count unique request IDs for each status category
+            request_cancelled_out_of_stock = abm_data[abm_data['Final Answer'].isin(['Out of stock', 'On hold', 'Not permitted'])]['Assigned Request Ids'].nunique()
+            action_pending_at_ho = abm_data[abm_data['Final Answer'].isin(['Request Raised'])]['Assigned Request Ids'].nunique()
             
-            # HO Section (A + B) - Using Request Status field from Sample Master Tracker
-            request_cancelled_out_of_stock = abm_data[abm_data['Request Status'].isin(['Out of stock', 'On hold', 'Not permitted'])]['Assigned Request Ids'].nunique()
-            action_pending_at_ho = abm_data[abm_data['Request Status'].isin(['Request Raised'])]['Assigned Request Ids'].nunique()
+            # HUB Section (D + E) - Using Final Answer instead of Request Status
+            pending_for_invoicing = abm_data[abm_data['Final Answer'].isin(['Action pending / In Process'])]['Assigned Request Ids'].nunique()
+            pending_for_dispatch = abm_data[abm_data['Final Answer'].isin(['Dispatch Pending'])]['Assigned Request Ids'].nunique()
             
-            # HUB Section (D + E + F) - Using Request Status field
-            # Pending for Invoicing (D) - Action Pending / in Process
-            pending_for_invoicing = abm_data[abm_data['Request Status'].isin(['Action pending / In Process'])]['Assigned Request Ids'].nunique()
-            # Pending for Dispatch (E) - Dispatch Pending
-            pending_for_dispatch = abm_data[abm_data['Request Status'].isin(['Dispatch  Pending'])]['Assigned Request Ids'].nunique()
+            # Delivery Status (G + H) - Using Final Answer instead of Request Status
+            delivered = abm_data[abm_data['Final Answer'].isin(['Delivered'])]['Assigned Request Ids'].nunique()
+            dispatched_in_transit = abm_data[abm_data['Final Answer'].isin(['Dispatched & In Transit'])]['Assigned Request Ids'].nunique()
             
-            # Delivery Status (G + H + I) - Using Request Status field
-            delivered = abm_data[abm_data['Request Status'].isin(['Delivered'])]['Assigned Request Ids'].nunique()
-            dispatched_in_transit = abm_data[abm_data['Request Status'].isin(['Dispatched & In Transit'])]['Assigned Request Ids'].nunique()
-            rto = abm_data[abm_data['Request Status'].isin(['RTO'])]['Assigned Request Ids'].nunique()
+            # RTO Reasons - Calculate FIRST before using in formulas
+            # Note: RTO reasons are based on Rto Reason field, not Final Answer
+            # Count unique request IDs for each RTO reason
+            incomplete_address = abm_data[abm_data['Rto Reason'].str.contains('Incomplete Address', na=False, case=False)]['Assigned Request Ids'].nunique()
+            doctor_non_contactable = abm_data[abm_data['Rto Reason'].str.contains('Dr. Non contactable', na=False, case=False)]['Assigned Request Ids'].nunique()
+            doctor_refused_to_accept = abm_data[abm_data['Rto Reason'].str.contains('Doctor Refused to Accept', na=False, case=False)]['Assigned Request Ids'].nunique()
             
-            # RTO Reasons column mappings - using string contains for flexibility with hidden characters
-            incomplete_address = abm_data[abm_data['Rto Reason'].str.contains('Incomplete Address', na=False)]['Assigned Request Ids'].nunique()
-            doctor_non_contactable = abm_data[abm_data['Rto Reason'].str.contains('Dr. Non contactable', na=False)]['Assigned Request Ids'].nunique()
-            doctor_refused_to_accept = abm_data[abm_data['Rto Reason'].str.contains('Doctor Refused to Accept', na=False)]['Assigned Request Ids'].nunique()
+            # Calculate RTO as sum of RTO reasons
+            rto_total = incomplete_address + doctor_non_contactable + doctor_refused_to_accept
             
-            # Calculated fields following the formulas from template
-            requests_dispatched = delivered + dispatched_in_transit + rto  # F = G + H + I
+            # Calculated fields using the RTO total
+            requests_dispatched = delivered + dispatched_in_transit + rto_total  # F = G + H + I
             sent_to_hub = pending_for_invoicing + pending_for_dispatch + requests_dispatched  # C = D + E + F
             requests_raised = request_cancelled_out_of_stock + action_pending_at_ho + sent_to_hub  # A + B + C
-            
             hold_delivery = 0
             
-            # Create Area Name: "ABM Terr Code and ABM HQ" as per template
-            # Use ABM HQ if available, otherwise use TBM HQ
+            # Create Area Name
             if 'ABM HQ' in abm_row and pd.notna(abm_row['ABM HQ']):
                 abm_hq = abm_row['ABM HQ']
-                print(f"      Using ABM HQ: {abm_hq} for {abm_name}")
             else:
-                abm_hq = tbm_hq  # Fallback to TBM HQ
-                print(f"      Using TBM HQ (fallback): {abm_hq} for {abm_name}")
-            area_name = f"{abm_code} and {abm_hq}"
+                abm_hq = tbm_hq
+            area_name = f"{abm_code} - {abm_hq}"
             
             summary_data.append({
                 'Area Name': area_name,
@@ -232,14 +205,12 @@ def create_zbm_hierarchical_reports():
                 'Requests Dispatched': requests_dispatched,
                 'Delivered': delivered,
                 'Dispatched In Transit': dispatched_in_transit,
-                'RTO': rto,
+                'RTO': rto_total,  # Use rto_total instead of rto
                 'Incomplete Address': incomplete_address,
                 'Doctor Non Contactable': doctor_non_contactable,
                 'Doctor Refused to Accept': doctor_refused_to_accept,
                 'Hold Delivery': hold_delivery
             })
-            
-            print(f"         Final counts - TBMs: {unique_tbms}, HCPs: {unique_hcps}, Requests: {unique_requests}, Raised: {requests_raised}")
         
         # Create DataFrame for this ZBM
         zbm_summary_df = pd.DataFrame(summary_data)
@@ -253,190 +224,201 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
     """Create Excel report for a specific ZBM with perfect formatting"""
     
     try:
-        from openpyxl import load_workbook
-        from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
-        from copy import copy as copy_style
-
         # Load template
         wb = load_workbook('zbm_summary.xlsx')
         ws = wb['ZBM']
 
         print(f"   📋 Creating Excel report for {zbm_code}...")
 
-        # Clear data area (rows 8 onwards) - preserve headers in row 7
-        data_start_row = 7  # Headers are in row 7, data starts from row 8
-        max_clear_rows = max(len(summary_df) + 10, 100)
-        
-        # Handle merged cells properly - remove ALL merged cells to avoid issues
-        try:
-            merged_ranges_to_remove = []
-            for merged_range in ws.merged_cells.ranges:
-                merged_ranges_to_remove.append(merged_range)
+        def get_cell_value_handling_merged(row, col):
+            """Get cell value even if it's part of a merged cell"""
+            cell = ws.cell(row=row, column=col)
             
-            # Remove all merged cells to avoid read-only issues
-            for merged_range in merged_ranges_to_remove:
-                try:
-                    ws.unmerge_cells(str(merged_range))
-                except Exception as e:
-                    print(f"      Warning: Could not unmerge cell {merged_range}: {e}")
-                    continue
-        except Exception as e:
-            print(f"      Warning: Error handling merged cells: {e}")
-            # Continue anyway - we'll handle it in cell writing
+            # Check if this cell is part of a merged range
+            for merged_range in ws.merged_cells.ranges:
+                if cell.coordinate in merged_range:
+                    # Get the top-left cell of the merged range
+                    top_left_cell = ws.cell(row=merged_range.min_row, column=merged_range.min_col)
+                    return top_left_cell.value
+            
+            return cell.value
         
-        # Clear data area
-        for r in range(data_start_row + 1, data_start_row + max_clear_rows):
-            for c in range(5, 23):  # Columns E to V (matching template structure)
-                cell = ws.cell(row=r, column=c)
-                cell.value = None
-
-        # Define exact column mapping based on template structure
-        # Based on the actual template: Area Name (E), ABM Name (F), # Unique TBMs (G), etc.
-        column_mapping = {
-            'Area Name': 5,           # Column E - Area Name
-            'ABM Name': 6,           # Column F - ABM Name  
-            'Unique TBMs': 7,        # Column G - # Unique TBMs
-            'Unique HCPs': 8,        # Column H - # Unique HCPs
-            'Requests Raised': 9,     # Column I - # Requests Raised (A+B+C)
-            'Request Cancelled Out of Stock': 10,  # Column J - Request Cancelled / Out of Stock (A)
-            'Action Pending at HO': 11,            # Column K - Action pending / In Process At HO (B)
-            'Sent to HUB': 12,                   # Column L - Sent to HUB (C)
-            'Pending for Invoicing': 13,         # Column M - Pending for Invoicing (D)
-            'Pending for Dispatch': 14,          # Column N - Pending for Dispatch (E)
-            'Requests Dispatched': 15,           # Column O - # Requests Dispatched (F)
-            'Delivered': 16,                     # Column P - Delivered (G)
-            'Dispatched In Transit': 17,         # Column Q - Dispatched & In Transit (H)
-            'RTO': 18,                           # Column R - RTO (I)
-            'Incomplete Address': 19,            # Column S - Incomplete Address
-            'Doctor Non Contactable': 20,        # Column T - Doctor Non Contactable
-            'Doctor Refused to Accept': 21,      # Column U - Doctor Refused to Accept
-            'Hold Delivery': 22                 # Column V - Hold Delivery
-        }
+        # Search for header row
+        header_row = None
+        for row_idx in range(1, 15):  # Check first 15 rows
+            for col_idx in range(1, min(30, ws.max_column + 1)):  # Check first 30 columns
+                cell_value = get_cell_value_handling_merged(row_idx, col_idx)
+                if cell_value and 'Area Name' in str(cell_value):
+                    header_row = row_idx
+                    break
+            if header_row:
+                break
+        
+        if header_row is None:
+            print(f"   ⚠️ Could not find header row in template, using row 7 as default")
+            header_row = 7
+        
+        print(f"   ℹ️ Detected header row: {header_row}")
+        data_start_row = header_row + 1
+        
+        # Read actual column positions from template header row, handling merged cells
+        column_mapping = {}
+        for col_idx in range(1, min(30, ws.max_column + 1)):
+            header_val = get_cell_value_handling_merged(header_row, col_idx)
+            if header_val:
+                header_str = str(header_val).strip()
+                
+                # Map template headers to our data columns
+                if 'Area Name' in header_str:
+                    column_mapping['Area Name'] = col_idx
+                elif 'ABM Name' in header_str:
+                    column_mapping['ABM Name'] = col_idx
+                elif 'Unique TBMs' in header_str or '# Unique TBMs' in header_str:
+                    column_mapping['Unique TBMs'] = col_idx
+                elif 'Unique HCPs' in header_str or '# Unique HCPs' in header_str:
+                    column_mapping['Unique HCPs'] = col_idx
+                elif 'Requests Raised' in header_str or '# Requests Raised' in header_str:
+                    column_mapping['Requests Raised'] = col_idx
+                elif 'Request Cancelled' in header_str or 'Out of Stock' in header_str:
+                    column_mapping['Request Cancelled Out of Stock'] = col_idx
+                elif 'Action pending' in header_str and 'HO' in header_str:
+                    column_mapping['Action Pending at HO'] = col_idx
+                elif 'Sent to HUB' in header_str:
+                    column_mapping['Sent to HUB'] = col_idx
+                elif 'Pending for Invoicing' in header_str:
+                    column_mapping['Pending for Invoicing'] = col_idx
+                elif 'Pending for Dispatch' in header_str:
+                    column_mapping['Pending for Dispatch'] = col_idx
+                elif 'Requests Dispatched' in header_str or '# Requests Dispatched' in header_str:
+                    column_mapping['Requests Dispatched'] = col_idx
+                elif header_str == 'Delivered' or 'Delivered (G)' in header_str:
+                    column_mapping['Delivered'] = col_idx
+                elif 'Dispatched & In Transit' in header_str or 'Dispatched In Transit' in header_str:
+                    column_mapping['Dispatched In Transit'] = col_idx
+                elif header_str == 'RTO' or 'RTO (I)' in header_str:
+                    column_mapping['RTO'] = col_idx
+                elif 'Incomplete Address' in header_str:
+                    column_mapping['Incomplete Address'] = col_idx
+                elif 'Doctor Non Contactable' in header_str or 'Dr. Non contactable' in header_str:
+                    column_mapping['Doctor Non Contactable'] = col_idx
+                elif 'Doctor Refused' in header_str or 'Refused to Accept' in header_str:
+                    column_mapping['Doctor Refused to Accept'] = col_idx
+                elif 'Hold Delivery' in header_str:
+                    column_mapping['Hold Delivery'] = col_idx
+        
+        print(f"   ℹ️ Detected {len(column_mapping)} columns: {list(column_mapping.keys())}")
+        
+        # Verify we have the essential columns
+        essential_cols = ['Area Name', 'ABM Name', 'Unique TBMs', 'Unique HCPs', 'Requests Raised']
+        missing_essential = [col for col in essential_cols if col not in column_mapping]
+        if missing_essential:
+            print(f"   ⚠️ WARNING: Missing essential columns in template: {missing_essential}")
+        
+        # Print summary_df to verify data exists
+        print(f"   ℹ️ Summary DataFrame shape: {summary_df.shape}")
+        print(f"   ℹ️ Summary DataFrame columns: {list(summary_df.columns)}")
+        if len(summary_df) > 0:
+            print(f"   ℹ️ First row sample: Area={summary_df.iloc[0]['Area Name']}, ABM={summary_df.iloc[0]['ABM Name']}, TBMs={summary_df.iloc[0]['Unique TBMs']}")
+        else:
+            print(f"   ⚠️ WARNING: Summary DataFrame is empty!")
+            return
+        
+        # Debug: Print all headers with their values from template
+        print(f"   🔍 Template headers found:")
+        for col_idx in range(1, min(30, ws.max_column + 1)):
+            val = get_cell_value_handling_merged(header_row, col_idx)
+            if val:
+                print(f"      Column {col_idx}: '{val}'")
+        
+        # Clear existing data rows (preserve header)
+        max_clear_rows = max(len(summary_df) + 10, 50)
+        for r in range(data_start_row, data_start_row + max_clear_rows):
+            for c in range(1, ws.max_column + 1):
+                try:
+                    cell = ws.cell(row=r, column=c)
+                    cell.value = None
+                except:
+                    pass
 
         def copy_row_style(src_row_idx, dst_row_idx):
             """Copy formatting from source row to destination row"""
-            for c in range(5, 23):  # Columns E to V (matching template structure)
-                src = ws.cell(row=src_row_idx, column=c)
-                dst = ws.cell(row=dst_row_idx, column=c)
-                
-                if src.font:
-                    dst.font = copy_style(src.font)
-                if src.alignment:
-                    dst.alignment = copy_style(src.alignment)
-                if src.border:
-                    dst.border = copy_style(src.border)
-                if src.fill:
-                    dst.fill = copy_style(src.fill)
-                dst.number_format = src.number_format
-
-        def write_to_cell_safely(row, col, value, formatting_func=None):
-            """Write to a cell safely"""
-            try:
-                cell = ws.cell(row=row, column=col)
-                # Check if cell is merged and handle accordingly
-                if hasattr(cell, 'value') and hasattr(cell.value, '__class__') and 'MergedCell' in str(cell.value.__class__):
-                    # Skip merged cells
-                    return None
-                cell.value = value
-                
-                if formatting_func:
-                    formatting_func(cell)
-                
-                return cell
-            except Exception as e:
-                print(f"      Warning: Could not write to cell ({row}, {col}): {e}")
-                return None
+            for c in range(1, ws.max_column + 1):
+                try:
+                    src = ws.cell(row=src_row_idx, column=c)
+                    dst = ws.cell(row=dst_row_idx, column=c)
+                    
+                    if src.font:
+                        dst.font = copy_style(src.font)
+                    if src.alignment:
+                        dst.alignment = copy_style(src.alignment)
+                    if src.border:
+                        dst.border = copy_style(src.border)
+                    if src.fill:
+                        dst.fill = copy_style(src.fill)
+                    dst.number_format = src.number_format
+                except:
+                    pass
 
         # Write data rows
+        template_data_row = data_start_row  # Use first data row as template
         for i in range(len(summary_df)):
-            target_row = data_start_row + 1 + i  # Start from row 8
-            if target_row > ws.max_row:
-                ws.insert_rows(target_row)
+            target_row = data_start_row + i
             
-            # Copy formatting from template row 8 (first data row)
-            copy_row_style(8, target_row)
+            # Copy formatting from template
+            copy_row_style(template_data_row, target_row)
             
-            # Write data according to exact column mapping
-            for col_name, col_num in column_mapping.items():
+            # Write data to mapped columns
+            for col_name, col_idx in column_mapping.items():
                 if col_name in summary_df.columns:
-                    value = summary_df.at[i, col_name]
+                    value = summary_df.iloc[i][col_name]  # Use iloc for safer access
                     
-                    def apply_number_formatting(cell):
+                    # Debug print for first row
+                    if i == 0:
+                        print(f"      Writing '{col_name}' = {value} to column {col_idx}")
+                    
+                    try:
+                        cell = ws.cell(row=target_row, column=col_idx)
+                        cell.value = value
+                        
+                        # Apply number formatting for numeric columns
                         if isinstance(value, (int, float)) and not pd.isna(value):
-                            cell.number_format = '0'  # Integer format
-                    
-                    write_to_cell_safely(target_row, col_num, value, apply_number_formatting)
+                            cell.number_format = '0'
+                    except Exception as e:
+                        print(f"      Warning: Could not write to cell ({target_row}, {col_idx}): {e}")
 
         # Add total row
-        total_row = data_start_row + 1 + len(summary_df)
-        if total_row > ws.max_row:
-            ws.insert_rows(total_row)
+        total_row = data_start_row + len(summary_df)
+        copy_row_style(template_data_row, total_row)
         
-        # Copy formatting for total row
-        copy_row_style(8, total_row)
+        # Write "Total" label in ABM Name column
+        if 'ABM Name' in column_mapping:
+            try:
+                cell = ws.cell(row=total_row, column=column_mapping['ABM Name'])
+                cell.value = "Total"
+                cell.font = Font(bold=True, name='Arial', size=10)
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+            except:
+                pass
         
-        # Write totals
-        def apply_total_formatting(cell):
-            cell.font = Font(bold=True, name='Arial', size=10)
-            cell.alignment = Alignment(horizontal='center', vertical='center')
-        
-        write_to_cell_safely(total_row, 5, None)  # Empty first column
-        write_to_cell_safely(total_row, 6, "Total", apply_total_formatting)
-        
-        # Calculate and write totals for each column
-        for col_name, col_num in column_mapping.items():
+        # Calculate and write totals
+        for col_name, col_idx in column_mapping.items():
             if col_name in summary_df.columns and col_name not in ['Area Name', 'ABM Name']:
-                total_value = summary_df[col_name].sum()
+                total_value = int(summary_df[col_name].sum())  # Ensure it's an integer
                 
-                def apply_total_value_formatting(cell):
+                print(f"      Writing Total '{col_name}' = {total_value} to column {col_idx}")
+                
+                try:
+                    cell = ws.cell(row=total_row, column=col_idx)
+                    cell.value = total_value
                     cell.font = Font(bold=True, name='Arial', size=10)
                     cell.alignment = Alignment(horizontal='center', vertical='center')
-                    if isinstance(total_value, (int, float)) and not pd.isna(total_value):
-                        cell.number_format = '0'  # Integer format
-                
-                write_to_cell_safely(total_row, col_num, total_value, apply_total_value_formatting)
-        
-        # Add merged cells for better formatting (matching template structure)
-        try:
-            # Merge cells in header row for better visual grouping
-            # Merge cells for "Requests Raised (A+B+C)" - columns I
-            ws.merge_cells(f'I7:I7')
-            
-            # Merge cells for "Request Cancelled / Out of Stock (A)" - columns J
-            ws.merge_cells(f'J7:J7')
-            
-            # Merge cells for "Action pending / In Process At HO (B)" - columns K
-            ws.merge_cells(f'K7:K7')
-            
-            # Merge cells for "Sent to HUB (C) (D+E+F)" - columns L
-            ws.merge_cells(f'L7:L7')
-            
-            # Merge cells for "Pending for Invoicing (D)" - columns M
-            ws.merge_cells(f'M7:M7')
-            
-            # Merge cells for "Pending for Dispatch (E)" - columns N
-            ws.merge_cells(f'N7:N7')
-            
-            # Merge cells for "# Requests Dispatched (F) (G+H+I)" - columns O
-            ws.merge_cells(f'O7:O7')
-            
-            # Merge cells for "Delivered (G)" - columns P
-            ws.merge_cells(f'P7:P7')
-            
-            # Merge cells for "Dispatched & In Transit (H)" - columns Q
-            ws.merge_cells(f'Q7:Q7')
-            
-            # Merge cells for "RTO (I)" - columns R
-            ws.merge_cells(f'R7:R7')
-            
-            print(f"   ✅ Applied merged cell formatting")
-            
-        except Exception as e:
-            print(f"   ⚠️ Could not apply merged cell formatting: {e}")
+                    cell.number_format = '0'
+                except Exception as e:
+                    print(f"      Warning: Could not write total to cell ({total_row}, {col_idx}): {e}")
 
-        # Save file - handle special characters in ZBM name
+        # Save file
         safe_zbm_name = str(zbm_name).replace(' ', '_').replace('/', '_').replace('\\', '_')
-        filename = f"ZBM_Summary_{zbm_code}_{safe_zbm_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        filename = f"ZBM_Summary_{zbm_code}_{safe_zbm_name}_{datetime.now().strftime('%Y%m%d')}.xlsx"
         filepath = os.path.join(output_dir, filename)
         
         wb.save(filepath)
@@ -453,6 +435,8 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
         
     except Exception as e:
         print(f"   ❌ Error creating Excel report for {zbm_code}: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     create_zbm_hierarchical_reports()
