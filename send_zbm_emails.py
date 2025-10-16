@@ -168,21 +168,22 @@ def send_zbm_emails():
         print(f"\n🔄 Processing ZBM: {zbm_code} - {zbm_name}")
         
         try:
-            # Filter data for this specific ZBM ONLY
-            zbm_data = df[df['ZBM Terr Code'] == zbm_code]
+            # Read the actual ZBM summary report file
+            zbm_summary_df = read_zbm_summary_report(zbm_code, zbm_name)
             
-            if len(zbm_data) == 0:
-                print(f"⚠️ No data found for ZBM: {zbm_code}")
+            if zbm_summary_df is None or zbm_summary_df.empty:
+                print(f"⚠️ No ZBM summary report found for {zbm_code}")
                 continue
             
-            # Get unique ABMs under this ZBM
+            # Convert summary report data to email format
+            summary_data = create_summary_data_from_report(zbm_summary_df)
+            summary_df = pd.DataFrame(summary_data)
+            
+            # Get ABM emails for CC from the original data
+            zbm_data = df[df['ZBM Terr Code'] == zbm_code]
             abms = zbm_data.groupby(['ABM Terr Code', 'ABM Name', 'ABM EMAIL_ID']).agg({
                 'TBM HQ': 'first'
             }).reset_index()
-            
-            # Create summary data
-            summary_data = create_summary_data(zbm_data, abms)
-            summary_df = pd.DataFrame(summary_data)
             
             # Generate email content
             email_content, cc_emails = generate_email_content(zbm_name, zbm_email, abms, summary_df)
@@ -203,66 +204,58 @@ def send_zbm_emails():
     print(f"❌ Failed to display: {error_count} emails")
     print(f"\n📧 All emails are now open in Outlook for your review and manual sending")
 
-def create_summary_data(zbm_data, abms):
-    """Create summary data for email body"""
+def read_zbm_summary_report(zbm_code, zbm_name):
+    """Read the actual ZBM summary report file created by create_zbm_hierarchical_reports.py"""
+    
+    # Look for ZBM summary report files in current directory and subdirectories
+    for root, dirs, files in os.walk('.'):
+        for file in files:
+            if file.startswith(f"ZBM_Summary_{zbm_code}_") and file.endswith('.xlsx'):
+                filepath = os.path.join(root, file)
+                print(f"   📊 Found ZBM summary report: {file}")
+                
+                try:
+                    # Read the Excel file
+                    df = pd.read_excel(filepath, sheet_name='ZBM')
+                    print(f"   ✅ Successfully loaded ZBM summary report with {len(df)} ABMs")
+                    return df
+                except Exception as e:
+                    print(f"   ❌ Error reading ZBM summary report: {e}")
+                    return None
+    
+    print(f"   ⚠️ No ZBM summary report found for {zbm_code}")
+    return None
+
+def create_summary_data_from_report(summary_df):
+    """Convert ZBM summary report data to email format"""
+    
+    if summary_df is None or summary_df.empty:
+        return []
     
     summary_data = []
     
-    for _, abm_row in abms.iterrows():
-        abm_code = abm_row['ABM Terr Code']
-        abm_name = abm_row['ABM Name']
-        tbm_hq = abm_row['TBM HQ']
-        
-        # Filter data for this specific ABM under this ZBM
-        abm_data = zbm_data[(zbm_data['ABM Terr Code'] == abm_code) & (zbm_data['ABM Name'] == abm_name)]
-        
-        # Calculate metrics
-        unique_tbms = abm_data['TBM EMAIL_ID'].nunique() if 'TBM EMAIL_ID' in abm_data.columns else 0
-        unique_hcps = abm_data['Doctor: Customer Code'].nunique()
-        unique_requests = abm_data['Assigned Request Ids'].nunique()
-        
-        # Status counts using Request Status field (matching summary report logic)
-        request_cancelled_out_of_stock = abm_data[abm_data['Request Status'].isin(['Out of stock', 'On hold', 'Not permitted'])]['Assigned Request Ids'].nunique()
-        action_pending_at_ho = abm_data[abm_data['Request Status'].isin(['Request Raised'])]['Assigned Request Ids'].nunique()
-        pending_for_invoicing = abm_data[abm_data['Request Status'].isin(['Action pending / In Process'])]['Assigned Request Ids'].nunique()
-        pending_for_dispatch = abm_data[abm_data['Request Status'].isin(['Dispatch  Pending'])]['Assigned Request Ids'].nunique()
-        delivered = abm_data[abm_data['Request Status'].isin(['Delivered'])]['Assigned Request Ids'].nunique()
-        dispatched_in_transit = abm_data[abm_data['Request Status'].isin(['Dispatched & In Transit'])]['Assigned Request Ids'].nunique()
-        rto = abm_data[abm_data['Request Status'].isin(['RTO'])]['Assigned Request Ids'].nunique()
-        
-        # RTO Reasons using string contains (matching summary report logic)
-        incomplete_address = abm_data[abm_data['Rto Reason'].str.contains('Incomplete Address', na=False)]['Assigned Request Ids'].nunique()
-        doctor_non_contactable = abm_data[abm_data['Rto Reason'].str.contains('Dr. Non contactable', na=False)]['Assigned Request Ids'].nunique()
-        doctor_refused_to_accept = abm_data[abm_data['Rto Reason'].str.contains('Doctor Refused to Accept', na=False)]['Assigned Request Ids'].nunique()
-        
-        # Calculated fields
-        requests_dispatched = delivered + dispatched_in_transit + rto
-        sent_to_hub = pending_for_invoicing + pending_for_dispatch + requests_dispatched
-        requests_raised = request_cancelled_out_of_stock + action_pending_at_ho + sent_to_hub
-        
-        # Create Area Name
-        area_name = f"{abm_code} and {tbm_hq}"
-        
+    for _, row in summary_df.iterrows():
+        # Map the data from the Excel report to email format
         summary_data.append({
-            'Area Name': area_name,
-            'ABM Name': abm_name,
-            'Unique TBMs': unique_tbms,
-            'Unique HCPs': unique_hcps,
-            'Unique Requests': unique_requests,
-            'Requests Raised': requests_raised,
-            'Request Cancelled Out of Stock': request_cancelled_out_of_stock,
-            'Action Pending at HO': action_pending_at_ho,
-            'Sent to HUB': sent_to_hub,
-            'Pending for Invoicing': pending_for_invoicing,
-            'Pending for Dispatch': pending_for_dispatch,
-            'Requests Dispatched': requests_dispatched,
-            'Delivered': delivered,
-            'Dispatched In Transit': dispatched_in_transit,
-            'RTO': rto,
-            'Incomplete Address': incomplete_address,
-            'Doctor Non Contactable': doctor_non_contactable,
-            'Doctor Refused to Accept': doctor_refused_to_accept,
-            'Hold Delivery': 0
+            'Area Name': row.get('Area Name', ''),
+            'ABM Name': row.get('ABM Name', ''),
+            'Unique TBMs': row.get('Unique TBMs', 0),
+            'Unique HCPs': row.get('Unique HCPs', 0),
+            'Unique Requests': row.get('Requests Raised', 0),  # Use Requests Raised as Unique Requests
+            'Requests Raised': row.get('Requests Raised', 0),
+            'Request Cancelled Out of Stock': row.get('Request Cancelled Out of Stock', 0),
+            'Action Pending at HO': row.get('Action Pending at HO', 0),
+            'Sent to HUB': row.get('Sent to HUB', 0),
+            'Pending for Invoicing': row.get('Pending for Invoicing', 0),
+            'Pending for Dispatch': row.get('Pending for Dispatch', 0),
+            'Requests Dispatched': row.get('Requests Dispatched', 0),
+            'Delivered': row.get('Delivered', 0),
+            'Dispatched In Transit': row.get('Dispatched In Transit', 0),
+            'RTO': row.get('RTO', 0),
+            'Incomplete Address': row.get('Incomplete Address', 0),
+            'Doctor Non Contactable': row.get('Doctor Non Contactable', 0),
+            'Doctor Refused to Accept': row.get('Doctor Refused to Accept', 0),
+            'Hold Delivery': row.get('Hold Delivery', 0)
         })
     
     return summary_data
@@ -301,66 +294,81 @@ Umesh Pawar.
     return email_content, cc_emails
 
 def create_summary_table_html(summary_df):
-    """Create HTML table for summary data with all columns from summary report"""
+    """Create HTML table for summary data with all columns from summary report including section headers"""
     
     if summary_df.empty:
         return "<p>No data available</p>"
     
-    # Create HTML table with complete column structure matching the summary report
-    html = "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; width: 100%; font-size: 12px;'>"
+    # Create comprehensive HTML table with section headers and all data
+    html = "<div style='font-family: Arial, sans-serif; margin: 20px 0;'>"
+    
+    # Add section headers with styling
+    html += "<div style='background-color: #f8f9fa; padding: 15px; border-left: 4px solid #007bff; margin-bottom: 20px;'>"
+    html += "<h3 style='margin: 0; color: #007bff;'>Sample Request Status Summary</h3>"
+    html += "<p style='margin: 5px 0 0 0; color: #666;'>Complete breakdown of sample requests by ABM territory</p>"
+    html += "</div>"
+    
+    # Create main summary table
+    html += "<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse; width: 100%; font-size: 11px; margin-bottom: 20px;'>"
     
     # Header row with all columns from summary report
-    html += "<tr style='background-color: #f0f0f0; font-weight: bold;'>"
-    html += "<th>Area Name</th>"
-    html += "<th>ABM Name</th>"
-    html += "<th># Unique TBMs</th>"
-    html += "<th># Unique HCPs</th>"
-    html += "<th># Requests Raised<br/>(A+B+C)</th>"
-    html += "<th>Request Cancelled /<br/>Out of Stock (A)</th>"
-    html += "<th>Action pending /<br/>In Process At HO (B)</th>"
-    html += "<th>Sent to HUB (C)<br/>(D+E+F)</th>"
-    html += "<th>Pending for<br/>Invoicing (D)</th>"
-    html += "<th>Pending for<br/>Dispatch (E)</th>"
-    html += "<th># Requests Dispatched (F)<br/>(G+H+I)</th>"
-    html += "<th>Delivered (G)</th>"
-    html += "<th>Dispatched &<br/>In Transit (H)</th>"
-    html += "<th>RTO (I)</th>"
-    html += "<th>Incomplete Address</th>"
-    html += "<th>Doctor Non Contactable</th>"
-    html += "<th>Doctor Refused to Accept</th>"
-    html += "<th>Hold Delivery</th>"
+    html += "<tr style='background-color: #e9ecef; font-weight: bold; text-align: center;'>"
+    html += "<th rowspan='2' style='vertical-align: middle;'>Area Name</th>"
+    html += "<th rowspan='2' style='vertical-align: middle;'>ABM Name</th>"
+    html += "<th rowspan='2' style='vertical-align: middle;'># Unique<br/>TBMs</th>"
+    html += "<th rowspan='2' style='vertical-align: middle;'># Unique<br/>HCPs</th>"
+    html += "<th rowspan='2' style='vertical-align: middle;'># Requests<br/>Raised<br/>(A+B+C)</th>"
+    html += "<th colspan='2' style='background-color: #fff3cd;'>HO Section</th>"
+    html += "<th colspan='3' style='background-color: #d1ecf1;'>HUB Section</th>"
+    html += "<th colspan='3' style='background-color: #d4edda;'>Delivery Status</th>"
+    html += "<th colspan='4' style='background-color: #f8d7da;'>RTO Reasons</th>"
+    html += "</tr>"
+    
+    # Sub-header row
+    html += "<tr style='background-color: #e9ecef; font-weight: bold; text-align: center;'>"
+    html += "<th style='background-color: #fff3cd;'>Request Cancelled /<br/>Out of Stock (A)</th>"
+    html += "<th style='background-color: #fff3cd;'>Action pending /<br/>In Process At HO (B)</th>"
+    html += "<th style='background-color: #d1ecf1;'>Sent to HUB (C)<br/>(D+E+F)</th>"
+    html += "<th style='background-color: #d1ecf1;'>Pending for<br/>Invoicing (D)</th>"
+    html += "<th style='background-color: #d1ecf1;'>Pending for<br/>Dispatch (E)</th>"
+    html += "<th style='background-color: #d4edda;'># Requests Dispatched (F)<br/>(G+H+I)</th>"
+    html += "<th style='background-color: #d4edda;'>Delivered (G)</th>"
+    html += "<th style='background-color: #d4edda;'>Dispatched &<br/>In Transit (H)</th>"
+    html += "<th style='background-color: #f8d7da;'>RTO (I)</th>"
+    html += "<th style='background-color: #f8d7da;'>Incomplete<br/>Address</th>"
+    html += "<th style='background-color: #f8d7da;'>Doctor Non<br/>Contactable</th>"
+    html += "<th style='background-color: #f8d7da;'>Doctor Refused<br/>to Accept</th>"
     html += "</tr>"
     
     # Data rows
     for _, row in summary_df.iterrows():
-        html += "<tr>"
-        html += f"<td>{row.get('Area Name', '')}</td>"
+        html += "<tr style='border-bottom: 1px solid #dee2e6;'>"
+        html += f"<td style='font-weight: bold;'>{row.get('Area Name', '')}</td>"
         html += f"<td>{row.get('ABM Name', '')}</td>"
-        html += f"<td>{row.get('Unique TBMs', 0)}</td>"
-        html += f"<td>{row.get('Unique HCPs', 0)}</td>"
-        html += f"<td>{row.get('Requests Raised', 0)}</td>"
-        html += f"<td>{row.get('Request Cancelled Out of Stock', 0)}</td>"
-        html += f"<td>{row.get('Action Pending at HO', 0)}</td>"
-        html += f"<td>{row.get('Sent to HUB', 0)}</td>"
-        html += f"<td>{row.get('Pending for Invoicing', 0)}</td>"
-        html += f"<td>{row.get('Pending for Dispatch', 0)}</td>"
-        html += f"<td>{row.get('Requests Dispatched', 0)}</td>"
-        html += f"<td>{row.get('Delivered', 0)}</td>"
-        html += f"<td>{row.get('Dispatched In Transit', 0)}</td>"
-        html += f"<td>{row.get('RTO', 0)}</td>"
-        html += f"<td>{row.get('Incomplete Address', 0)}</td>"
-        html += f"<td>{row.get('Doctor Non Contactable', 0)}</td>"
-        html += f"<td>{row.get('Doctor Refused to Accept', 0)}</td>"
-        html += f"<td>{row.get('Hold Delivery', 0)}</td>"
+        html += f"<td style='text-align: center;'>{row.get('Unique TBMs', 0)}</td>"
+        html += f"<td style='text-align: center;'>{row.get('Unique HCPs', 0)}</td>"
+        html += f"<td style='text-align: center; font-weight: bold; background-color: #f8f9fa;'>{row.get('Requests Raised', 0)}</td>"
+        html += f"<td style='text-align: center; background-color: #fff3cd;'>{row.get('Request Cancelled Out of Stock', 0)}</td>"
+        html += f"<td style='text-align: center; background-color: #fff3cd;'>{row.get('Action Pending at HO', 0)}</td>"
+        html += f"<td style='text-align: center; background-color: #d1ecf1;'>{row.get('Sent to HUB', 0)}</td>"
+        html += f"<td style='text-align: center; background-color: #d1ecf1;'>{row.get('Pending for Invoicing', 0)}</td>"
+        html += f"<td style='text-align: center; background-color: #d1ecf1;'>{row.get('Pending for Dispatch', 0)}</td>"
+        html += f"<td style='text-align: center; background-color: #d4edda;'>{row.get('Requests Dispatched', 0)}</td>"
+        html += f"<td style='text-align: center; background-color: #d4edda;'>{row.get('Delivered', 0)}</td>"
+        html += f"<td style='text-align: center; background-color: #d4edda;'>{row.get('Dispatched In Transit', 0)}</td>"
+        html += f"<td style='text-align: center; background-color: #f8d7da;'>{row.get('RTO', 0)}</td>"
+        html += f"<td style='text-align: center; background-color: #f8d7da;'>{row.get('Incomplete Address', 0)}</td>"
+        html += f"<td style='text-align: center; background-color: #f8d7da;'>{row.get('Doctor Non Contactable', 0)}</td>"
+        html += f"<td style='text-align: center; background-color: #f8d7da;'>{row.get('Doctor Refused to Accept', 0)}</td>"
         html += "</tr>"
     
-    # Total row
-    html += "<tr style='background-color: #e0e0e0; font-weight: bold;'>"
-    html += "<td>TOTAL</td>"
+    # Total row with enhanced styling
+    html += "<tr style='background-color: #343a40; color: white; font-weight: bold; text-align: center;'>"
+    html += "<td style='font-size: 12px;'>TOTAL</td>"
     html += "<td></td>"
     html += f"<td>{summary_df.get('Unique TBMs', pd.Series()).sum()}</td>"
     html += f"<td>{summary_df.get('Unique HCPs', pd.Series()).sum()}</td>"
-    html += f"<td>{summary_df.get('Requests Raised', pd.Series()).sum()}</td>"
+    html += f"<td style='font-size: 12px;'>{summary_df.get('Requests Raised', pd.Series()).sum()}</td>"
     html += f"<td>{summary_df.get('Request Cancelled Out of Stock', pd.Series()).sum()}</td>"
     html += f"<td>{summary_df.get('Action Pending at HO', pd.Series()).sum()}</td>"
     html += f"<td>{summary_df.get('Sent to HUB', pd.Series()).sum()}</td>"
@@ -373,10 +381,20 @@ def create_summary_table_html(summary_df):
     html += f"<td>{summary_df.get('Incomplete Address', pd.Series()).sum()}</td>"
     html += f"<td>{summary_df.get('Doctor Non Contactable', pd.Series()).sum()}</td>"
     html += f"<td>{summary_df.get('Doctor Refused to Accept', pd.Series()).sum()}</td>"
-    html += f"<td>{summary_df.get('Hold Delivery', pd.Series()).sum()}</td>"
     html += "</tr>"
     
     html += "</table>"
+    
+    # Add legend/explanation
+    html += "<div style='background-color: #f8f9fa; padding: 10px; border-radius: 5px; font-size: 10px; color: #666;'>"
+    html += "<strong>Legend:</strong> "
+    html += "<span style='background-color: #fff3cd; padding: 2px 5px; margin: 0 5px;'>HO Section</span> "
+    html += "<span style='background-color: #d1ecf1; padding: 2px 5px; margin: 0 5px;'>HUB Section</span> "
+    html += "<span style='background-color: #d4edda; padding: 2px 5px; margin: 0 5px;'>Delivery Status</span> "
+    html += "<span style='background-color: #f8d7da; padding: 2px 5px; margin: 0 5px;'>RTO Reasons</span>"
+    html += "</div>"
+    
+    html += "</div>"
     
     return html
 
@@ -446,21 +464,22 @@ def create_html_email_files(df, zbms):
         print(f"\n🔄 Processing ZBM: {zbm_code} - {zbm_name}")
         
         try:
-            # Filter data for this specific ZBM ONLY
-            zbm_data = df[df['ZBM Terr Code'] == zbm_code]
+            # Read the actual ZBM summary report file
+            zbm_summary_df = read_zbm_summary_report(zbm_code, zbm_name)
             
-            if len(zbm_data) == 0:
-                print(f"⚠️ No data found for ZBM: {zbm_code}")
+            if zbm_summary_df is None or zbm_summary_df.empty:
+                print(f"⚠️ No ZBM summary report found for {zbm_code}")
                 continue
             
-            # Get unique ABMs under this ZBM
+            # Convert summary report data to email format
+            summary_data = create_summary_data_from_report(zbm_summary_df)
+            summary_df = pd.DataFrame(summary_data)
+            
+            # Get ABM emails for CC from the original data
+            zbm_data = df[df['ZBM Terr Code'] == zbm_code]
             abms = zbm_data.groupby(['ABM Terr Code', 'ABM Name', 'ABM EMAIL_ID']).agg({
                 'TBM HQ': 'first'
             }).reset_index()
-            
-            # Create summary data
-            summary_data = create_summary_data(zbm_data, abms)
-            summary_df = pd.DataFrame(summary_data)
             
             # Generate email content
             email_content, cc_emails = generate_email_content(zbm_name, zbm_email, abms, summary_df)
