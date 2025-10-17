@@ -1,4 +1,4 @@
- import pandas as pd
+import pandas as pd
 import os
 from jinja2 import Environment, FileSystemLoader
 import win32com.client as win32
@@ -22,9 +22,16 @@ def find_latest_folder(pattern):
         return None
     return max(folders, key=os.path.getctime)
 
+# Get the current directory
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if not current_dir:
+    current_dir = os.getcwd()
+
+print(f"📂 Working directory: {current_dir}")
+
 # Locate the generated folders
-consolidated_folder = find_latest_folder("ZBM_Consolidated_Files_*")
-reports_folder = find_latest_folder("ZBM_Reports_*")
+consolidated_folder = find_latest_folder(os.path.join(current_dir, "ZBM_Consolidated_Files_*"))
+reports_folder = find_latest_folder(os.path.join(current_dir, "ZBM_Reports_*"))
 
 if not consolidated_folder:
     print("❌ Error: Could not find ZBM_Consolidated_Files folder. Please run create_zbm_consolidated_files.py first.")
@@ -36,6 +43,26 @@ if not reports_folder:
 
 print(f"✅ Found consolidated files folder: {consolidated_folder}")
 print(f"✅ Found reports folder: {reports_folder}")
+
+# Debug: List files in consolidated folder
+print(f"\n🔍 Files in consolidated folder:")
+if consolidated_folder and os.path.exists(consolidated_folder):
+    files = os.listdir(consolidated_folder)
+    print(f"   Total files: {len(files)}")
+    for f in files[:5]:  # Show first 5 files
+        print(f"   - {f}")
+else:
+    print("   Folder not accessible!")
+
+# Debug: List files in reports folder
+print(f"\n🔍 Files in reports folder:")
+if reports_folder and os.path.exists(reports_folder):
+    files = os.listdir(reports_folder)
+    print(f"   Total files: {len(files)}")
+    for f in files[:5]:  # Show first 5 files
+        print(f"   - {f}")
+else:
+    print("   Folder not accessible!")
 
 # Read Sample Master Tracker to get ZBM details
 print("📖 Reading Sample Master Tracker.xlsx...")
@@ -59,16 +86,22 @@ os.makedirs(email_log_folder, exist_ok=True)
 def read_summary_report(zbm_code, zbm_name):
     """Read the summary report Excel file for a ZBM and extract data as HTML table"""
     try:
-        # Find the summary report file
-        safe_zbm_name = str(zbm_name).replace(' ', '_').replace('/', '_').replace('\\', '_')
-        pattern = os.path.join(reports_folder, f"ZBM_Summary_{zbm_code}_{safe_zbm_name}_*.xlsx")
+        # Find the summary report file - use wildcard pattern without safe_zbm_name
+        pattern = os.path.join(reports_folder, f"ZBM_Summary_{zbm_code}_*.xlsx")
         files = glob.glob(pattern)
         
         if not files:
             print(f"   ⚠️ Warning: No summary report found for {zbm_code}")
+            print(f"      Searched pattern: {pattern}")
             return None
         
-        report_file = files[0]
+        report_file = os.path.abspath(files[0])
+        
+        # Verify file exists
+        if not os.path.exists(report_file):
+            print(f"   ❌ Summary report file does not exist: {report_file}")
+            return None
+        
         print(f"   📊 Reading summary report: {os.path.basename(report_file)}")
         
         # Read the Excel file
@@ -161,15 +194,26 @@ for _, zbm_row in zbms.iterrows():
     
     # Find consolidated file for this ZBM
     safe_zbm_name = str(zbm_name).replace(' ', '_').replace('/', '_').replace('\\', '_')
-    consolidated_pattern = os.path.join(consolidated_folder, f"ZBM_Consolidated_{zbm_code}_{safe_zbm_name}_*.xlsx")
+    consolidated_pattern = os.path.join(consolidated_folder, f"ZBM_Consolidated_{zbm_code}_*.xlsx")
     consolidated_files = glob.glob(consolidated_pattern)
     
     if not consolidated_files:
         print(f"   ⚠️ No consolidated file found for {zbm_code}")
+        print(f"      Searched pattern: {consolidated_pattern}")
         continue
     
     consolidated_file = consolidated_files[0]
+    
+    # Convert to absolute path (Outlook requires absolute paths)
+    consolidated_file = os.path.abspath(consolidated_file)
+    
+    # Verify file exists
+    if not os.path.exists(consolidated_file):
+        print(f"   ❌ File does not exist: {consolidated_file}")
+        continue
+    
     print(f"   📎 Attaching: {os.path.basename(consolidated_file)}")
+    print(f"      Full path: {consolidated_file}")
     
     # Read summary report data
     summary_html = read_summary_report(zbm_code, zbm_name)
@@ -191,9 +235,6 @@ for _, zbm_row in zbms.iterrows():
             mail.CC = abm_cc_emails
             print(f"   📧 CC: {len(abm_cc_emails.split(';'))} ABMs")
         
-        # Attach consolidated file
-        mail.Attachments.Add(consolidated_file)
-        
         # Set subject
         mail.Subject = f"Sample Direct Dispatch - ZBM Summary Report as of {current_date}"
         
@@ -207,6 +248,15 @@ for _, zbm_row in zbms.iterrows():
         
         # Set sender
         mail.SentOnBehalfOfName = 'EPD_SFA@abbott.com'
+        
+        # Attach consolidated file - AFTER setting body
+        try:
+            mail.Attachments.Add(consolidated_file)
+            print(f"   ✅ Attachment added successfully")
+        except Exception as attach_error:
+            print(f"   ❌ Error attaching file: {attach_error}")
+            print(f"      File path: {consolidated_file}")
+            continue
         
         # Send email
         mail.Send()
