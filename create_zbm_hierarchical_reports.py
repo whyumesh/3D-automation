@@ -158,11 +158,11 @@ def create_zbm_hierarchical_reports():
             # HO Section (A + B) - Using Final Answer instead of Request Status
             # Count unique request IDs for each status category
             request_cancelled_out_of_stock = abm_data[abm_data['Final Answer'].isin(['Out of stock', 'On hold', 'Not permitted'])]['Assigned Request Ids'].nunique()
-            action_pending_at_ho = abm_data[abm_data['Final Answer'].isin(['Request Raised'])]['Assigned Request Ids'].nunique()
+            action_pending_at_ho = abm_data[abm_data['Final Answer'].isin(['Request Raised', 'Action pending / In Process At HO'])]['Assigned Request Ids'].nunique()
             
             # HUB Section (D + E) - Using Final Answer instead of Request Status
-            pending_for_invoicing = abm_data[abm_data['Final Answer'].isin(['Action pending / In Process'])]['Assigned Request Ids'].nunique()
-            pending_for_dispatch = abm_data[abm_data['Final Answer'].isin(['Dispatch Pending'])]['Assigned Request Ids'].nunique()
+            pending_for_invoicing = abm_data[abm_data['Final Answer'].isin(['Action pending / In Process At Hub'])]['Assigned Request Ids'].nunique()
+            pending_for_dispatch = abm_data[abm_data['Final Answer'].isin(['Dispatch  Pending'])]['Assigned Request Ids'].nunique()
             
             # Delivery Status (G + H) - Using Final Answer instead of Request Status
             delivered = abm_data[abm_data['Final Answer'].isin(['Delivered'])]['Assigned Request Ids'].nunique()
