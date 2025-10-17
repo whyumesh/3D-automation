@@ -68,9 +68,6 @@
     </style>
 </head>
 <body>
-    <div class="header">
-        <h2>Sample Direct Dispatch to Doctors - ZBM Summary Report</h2>
-    </div>
     
     <div class="content">
         <div class="greeting">
@@ -78,42 +75,28 @@
             <p>Greetings!</p>
         </div>
         
-        <p>Please find below the <span class="highlight">Sample Direct Dispatch Summary Report</span> for your zone as of <strong>{{ current_date }}</strong>.</p>
         
-        <p>This report provides a comprehensive overview of all sample requests under your zone, organized by ABM territory:</p>
-        
+    <div class="note">
+            </strong> You can track your sample request at the following link with the Docket Number:
+        </div>        
+
         <div style="margin: 20px 0;">
             {{ summary_table|safe }}
         </div>
         
-        <div class="note">
-            <strong>📎 Attachment:</strong> A detailed consolidated file containing all request-level data is attached to this email for your reference and further analysis.
-        </div>
         
-        <p><strong>Key Highlights:</strong></p>
-        <ul>
-            <li>The summary table above shows aggregate metrics for each ABM territory</li>
-            <li>The attached consolidated file contains detailed request-level information</li>
-            <li>All ABMs under your zone are copied on this email</li>
-        </ul>
         
-        <p><strong>Report Sections Explained:</strong></p>
-        <ul>
-            <li><strong>HO Section:</strong> Requests at Head Office level (cancelled/out of stock + pending at HO)</li>
-            <li><strong>HUB Section:</strong> Requests at Hub level (pending invoicing + pending dispatch)</li>
-            <li><strong>Delivery Status:</strong> Dispatched and delivered requests</li>
-            <li><strong>RTO (Return to Origin):</strong> Breakdown by reason (incomplete address, non-contactable, refused)</li>
-        </ul>
-        
-        <p>For any queries or clarifications, please feel free to reach out.</p>
-        
+        <p>In case of any query, please contact 1Point.</p>
+        <p>
+  DTDC: <a href="https://dtdc.in/trace.asp">Click Here</a>
+</p>
+
+<p>
+  Speed Post: <a href="https://www.indiapost.gov.in/_layouts/15/dop.portal.tracking/trackconsignment.aspx">Click Here</a>
+</p>
         <div class="footer">
-            <p><strong>Best Regards,</strong><br>
-            EPD SFA Team<br>
-            Abbott</p>
-            
-            <p style="font-size: 10px; color: #999; margin-top: 20px;">
-                <em>This is an auto-generated email. Please do not reply to this email address.</em>
+            <p><strong>Best Regards,</strong>
+                <p> <strong> XYZ </strong></p>
             </p>
         </div>
     </div>
