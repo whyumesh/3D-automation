@@ -42,26 +42,27 @@ def read_summary_report(zbm_code, zbm_name):
         data = []
         headers = []
         
-        # Read headers - ONLY non-empty ones
-        header_col_count = 0
+        # Read headers - collect all non-empty headers in the row
+        header_col_indices = []
         for col_idx in range(1, ws.max_column + 1):
             header_val = ws.cell(row=header_row, column=col_idx).value
             if header_val and str(header_val).strip():
                 headers.append(str(header_val).strip())
-                header_col_count = col_idx
-            else:
-                # Stop when we hit the first empty header
-                break
+                header_col_indices.append(col_idx)
         
-        print(f"   📋 Found {len(headers)} columns in summary report")
+        if not headers:
+            print(f"   ⚠️ Warning: No headers found in summary report")
+            return None
+        
+        print(f"   📋 Found {len(headers)} columns in summary report: {headers}")
         
         # Read data rows until we hit empty or "Total" row
         for row_idx in range(header_row + 1, ws.max_row + 1):
             row_data = []
             is_empty = True
             
-            # Only read up to the number of headers we found
-            for col_idx in range(1, header_col_count + 1):
+            # Only read columns where we found headers
+            for col_idx in header_col_indices:
                 cell_value = ws.cell(row=row_idx, column=col_idx).value
                 if cell_value is not None:
                     is_empty = False
@@ -71,7 +72,7 @@ def read_summary_report(zbm_code, zbm_name):
                 break
             
             # Check if this is the total row
-            if row_data and len(row_data) > 1 and 'Total' in str(row_data[1]):
+            if row_data and len(row_data) > 1 and row_data[1] and 'Total' in str(row_data[1]):
                 data.append(row_data)
                 break
             
