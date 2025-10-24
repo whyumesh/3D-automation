@@ -1,4 +1,4 @@
-# Read data rows
+ Read data rows
         data = []
         empty_row_count = 0
         for row_idx in range(header_row + 1, ws.max_row + 1):
