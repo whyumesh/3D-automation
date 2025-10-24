@@ -108,7 +108,7 @@ def read_summary_report(zbm_code, zbm_name):
         wb = load_workbook(report_file)
         ws = wb['ZBM']
         
-       # Find header row and starting column (looking for "Area Name")
+        # Find header row and starting column (looking for "Area Name")
         header_row = None
         start_col = None
         for row_idx in range(1, 15):
@@ -125,7 +125,7 @@ def read_summary_report(zbm_code, zbm_name):
             print(f"   ⚠️ Warning: Could not find header row in summary report")
             return None
 
-# Read headers starting from start_col
+        # Read headers starting from start_col
         headers = []
         for col_idx in range(start_col, ws.max_column + 1):
             header_val = ws.cell(row=header_row, column=col_idx).value
@@ -133,24 +133,22 @@ def read_summary_report(zbm_code, zbm_name):
                 break
             headers.append(str(header_val).strip())
 
-
         # Read data rows
-        # Read data rows
-    data = []
-    for row_idx in range(header_row + 1, ws.max_row + 1):
-        row_data = []
-        is_empty = True
+        data = []
+        for row_idx in range(header_row + 1, ws.max_row + 1):
+            row_data = []
+            is_empty = True
 
-        for col_offset in range(len(headers)):
-            col_idx = start_col + col_offset
-            cell_value = ws.cell(row=row_idx, column=col_idx).value
-            if cell_value is not None and str(cell_value).strip() != "":
-                is_empty = False
-            row_data.append(cell_value)
+            for col_offset in range(len(headers)):
+                col_idx = start_col + col_offset
+                cell_value = ws.cell(row=row_idx, column=col_idx).value
+                if cell_value is not None and str(cell_value).strip() != "":
+                    is_empty = False
+                row_data.append(cell_value)
 
-        if is_empty:
-            break  # Stop reading if a completely empty row is found
-        data.append(row_data)  # Add the row to the data list
+            if is_empty:
+                break  # Stop reading if a completely empty row is found
+            data.append(row_data)  # Add the row to the data list
         
         # Create DataFrame
         df_summary = pd.DataFrame(data, columns=headers)
@@ -226,7 +224,7 @@ for _, zbm_row in zbms.iterrows():
         mail = outlook.CreateItem(0)
         mail.To = zbm_email
         
-        # Add ABMs in CC
+        # Add ABMs in CC (uncomment if needed)
         # if abm_cc_emails:
         #     mail.CC = abm_cc_emails
         #     print(f"   📧 CC: {len(abm_cc_emails.split(';'))} ABMs")
@@ -258,16 +256,17 @@ for _, zbm_row in zbms.iterrows():
         mail.Display()
         
         email_count += 1
-        print(f"   ✅ Email sent successfully to {zbm_email}")
+        print(f"   ✅ Email displayed successfully for {zbm_email}")
         
         # Log the sent email
         with open(os.path.join(email_log_folder, 'email_log.txt'), 'a') as log:
-            log.write(f"{dt.now()} - Sent to {zbm_code} ({zbm_name}) - {zbm_email}\n")
+            log.write(f"{dt.now()} - Displayed email for {zbm_code} ({zbm_name}) - {zbm_email}\n")
         
     except Exception as e:
-        print(f"   ❌ Error sending email to {zbm_code}: {e}")
+        print(f"   ❌ Error creating email for {zbm_code}: {e}")
         continue
 
 print(f"\n🎉 Email automation completed!")
-print(f"📊 Total emails sent: {email_count} out of {len(zbms)} ZBMs")
+print(f"📊 Total emails displayed: {email_count} out of {len(zbms)} ZBMs")
 print(f"📁 Email logs saved in: {email_log_folder}")
+This is the complete, corrected code with all indentation errors fixed. The script will now properly read the ZBM summary reports, generate HTML tables with all data, and display emails with correct formatting.
