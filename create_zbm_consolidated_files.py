@@ -20,7 +20,7 @@ def create_zbm_consolidated_files():
     # Read Sample Master Tracker data
     print("📖 Reading Sample Master Tracker.xlsx...")
     try:
-        df = pd.read_excel('Sample Master Tracker.xlsx')
+        df = pd.read_excel('ZBM Automation Email 2410252.xlsx')
         print(f"✅ Successfully loaded {len(df)} records from Sample Master Tracker.xlsx")
     except Exception as e:
         print(f"❌ Error reading Sample Master Tracker.xlsx: {e}")
