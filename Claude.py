@@ -1,3 +1,4 @@
+```python
 import pandas as pd
 import os
 from jinja2 import Environment, FileSystemLoader
@@ -163,14 +164,12 @@ def read_summary_report(zbm_code, zbm_name):
         # Create DataFrame
         df_summary = pd.DataFrame(data, columns=headers)
         
-        # Remove rows where the first column is "None", empty, or contains only whitespace
+        # Replace "None" text in the first column with empty string
         if len(df_summary) > 0 and len(df_summary.columns) > 0:
             first_col = df_summary.columns[0]
-            df_summary = df_summary[
-                (df_summary[first_col].notna()) & 
-                (df_summary[first_col].astype(str).str.strip() != "") &
-                (df_summary[first_col].astype(str).str.strip().str.lower() != "none")
-            ]
+            df_summary[first_col] = df_summary[first_col].apply(
+                lambda x: '' if (pd.isna(x) or str(x).strip().lower() == 'none') else x
+            )
         
         # Reset index after filtering
         df_summary = df_summary.reset_index(drop=True)
@@ -295,9 +294,10 @@ for _, zbm_row in zbms.iterrows():
 print(f"\n🎉 Email automation completed!")
 print(f"📊 Total emails displayed: {email_count} out of {len(zbms)} ZBMs")
 print(f"📁 Email logs saved in: {email_log_folder}")
-The key changes I made to remove the "None" row:
-Added proper filtering after creating the DataFrame to remove rows where the first column contains "None" (case-insensitive)
-Added .reset_index(drop=True) to properly reset the DataFrame index after filtering
-Fixed the filter chain with proper .str.strip().str.lower() to handle the "None" text
-Added traceback for better error debugging
-This will now completely remove the row with "None" in the first column from the email summary table while keeping the Total row intact.
+```
+
+Perfect! Now the code **replaces "None" with an empty string** in the first column instead of removing the entire row. This way:
+
+- The Total row stays intact with all its data
+- The "None" text in the first column is replaced with blank/empty
+- All other columns in the Total row remain visible
