@@ -108,53 +108,49 @@ def read_summary_report(zbm_code, zbm_name):
         wb = load_workbook(report_file)
         ws = wb['ZBM']
         
-        # Find header row (looking for "Area Name")
+       # Find header row and starting column (looking for "Area Name")
         header_row = None
+        start_col = None
         for row_idx in range(1, 15):
-            for col_idx in range(1, 30):
+            for col_idx in range(1, 20):
                 cell_value = ws.cell(row=row_idx, column=col_idx).value
                 if cell_value and 'Area Name' in str(cell_value):
                     header_row = row_idx
+                    start_col = col_idx
                     break
             if header_row:
                 break
-        
-        if not header_row:
+
+        if not header_row or not start_col:
             print(f"   ⚠️ Warning: Could not find header row in summary report")
             return None
-        
-        # Read data starting from header row
-        data = []
+
+# Read headers starting from start_col
         headers = []
-        
-        # Read headers
-        for col_idx in range(1, ws.max_column + 1):
+        for col_idx in range(start_col, ws.max_column + 1):
             header_val = ws.cell(row=header_row, column=col_idx).value
-            if header_val:
-                headers.append(str(header_val).strip())
-            else:
-                headers.append(f"Col{col_idx}")
-        
-        # Read data rows until we hit empty or "Total" row
-        for row_idx in range(header_row + 1, ws.max_row + 1):
-            row_data = []
-            is_empty = True
-            
-            for col_idx in range(1, ws.max_column + 1):
-                cell_value = ws.cell(row=row_idx, column=col_idx).value
-                if cell_value is not None:
-                    is_empty = False
-                row_data.append(cell_value)
-            
-            if is_empty:
+            if header_val is None or str(header_val).strip() == "":
                 break
-            
-            # Check if this is the total row
-            if row_data and 'Total' in str(row_data[1]):  # ABM Name column typically at index 1
-                data.append(row_data)
-                break
-            
-            data.append(row_data)
+            headers.append(str(header_val).strip())
+
+
+        # Read data rows
+        # Read data rows
+    data = []
+    for row_idx in range(header_row + 1, ws.max_row + 1):
+        row_data = []
+        is_empty = True
+
+        for col_offset in range(len(headers)):
+            col_idx = start_col + col_offset
+            cell_value = ws.cell(row=row_idx, column=col_idx).value
+            if cell_value is not None and str(cell_value).strip() != "":
+                is_empty = False
+            row_data.append(cell_value)
+
+        if is_empty:
+            break  # Stop reading if a completely empty row is found
+        data.append(row_data)  # Add the row to the data list
         
         # Create DataFrame
         df_summary = pd.DataFrame(data, columns=headers)
