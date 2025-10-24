@@ -49,10 +49,9 @@ def create_zbm_hierarchical_reports():
     df = df[df['ABM Terr Code'].astype(str).str.strip() != '']
     df = df[df['TBM HQ'].astype(str).str.strip() != '']
 
-    # Filter for ZBM codes that start with "ZN" (only restriction needed)
-    df = df[df['ZBM Terr Code'].astype(str).str.startswith('ZN')]
-    print(f"📊 After cleaning and ZBM filtering: {len(df)} records remaining")
-    print(f"📊 Processing all ZBM codes starting with 'ZN' - no geographic restrictions")
+    # *** REMOVED ZBM FILTER - Now processing ALL ZBM codes ***
+    print(f"📊 After cleaning: {len(df)} records remaining")
+    print(f"📊 Processing ALL ZBM codes - no restrictions")
 
     # Compute Final Answer per unique request id using rules from logic.xlsx
     print("🧠 Computing final status per unique Request Id using rules...")
@@ -205,7 +204,7 @@ def create_zbm_hierarchical_reports():
                 'Requests Dispatched': requests_dispatched,
                 'Delivered': delivered,
                 'Dispatched In Transit': dispatched_in_transit,
-                'RTO': rto_total,  # Use rto_total instead of rto
+                'RTO': rto_total,
                 'Incomplete Address': incomplete_address,
                 'Doctor Non Contactable': doctor_non_contactable,
                 'Doctor Refused to Accept': doctor_refused_to_accept,
@@ -400,6 +399,7 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
             except:
                 pass
         
+        # Calculate and write totals
         # Calculate and write totals
         for col_name, col_idx in column_mapping.items():
             if col_name in summary_df.columns and col_name not in ['Area Name', 'ABM Name']:
